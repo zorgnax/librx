@@ -72,15 +72,6 @@ typedef struct {
     char *str;
 } char_class_t;
 
-// Based on the type, the value is different:
-// CHAR: value is the character to eat when the next link is followed.
-// CAPTURE_START: value is the number of the capture in the regexp.
-// CAPTURE_END: value is the number of the capture in the regexp.
-// BRANCH: next2 is defined as the other branch to try. next is
-//     always preferred to next2, so if greedy matching the next pointer
-//     leads backwards, but for nongreedy matching, the next pointer leads
-//     forward.
-// etc.
 struct node_t {
     char type;
     node_t *next;
@@ -619,7 +610,7 @@ int rx_quantifier_init (rx_t *rx, int pos, int *pos2, int *qval_offset) {
     }
     return rx_error(rx, "Quantifier not closed.");
 
-check_greedy:
+    check_greedy:
     c = regexp[pos + 1];
     if (c == '?') {
         // non greedy
@@ -1023,7 +1014,7 @@ int rx_match (rx_t *rx, matcher_t *m, char *str, int start_pos) {
     int retry_ignorecase;
     while (1) {
         retry_ignorecase = 0;
-retry:
+        retry:
 
         c = str[pos];
         if (retry_ignorecase) {
@@ -1328,7 +1319,7 @@ retry:
                 }
             }
 
-char_class_done:
+            char_class_done:
             if ((matched && !ccval->negated) || (!matched && ccval->negated)) {
                 pos += test_size;
                 node = node->next;
@@ -1392,7 +1383,7 @@ char_class_done:
             continue;
         }
 
-try_alternative:
+        try_alternative:
         if (rx->ignorecase) {
             if (retry_ignorecase) {
                 retry_ignorecase = 0;
@@ -1631,9 +1622,9 @@ void run_tests () {
 int main () {
     rx = rx_alloc();
     m = rx_matcher_alloc();
-    // run_tests();
-    // return 0;
-    rx_try("[a]+\\c", "A");
+    //run_tests();
+    //return 0;
+    rx_try("[a]+\\c", "AaAaBbBbaaAaBbBb");
     rx_matcher_free(m);
     rx_free(rx);
     return 0;
