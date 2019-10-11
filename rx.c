@@ -1,18 +1,23 @@
+//
+// librx
+//
+// This library implements regular expressions using an NFA graph. It backtracks using
+// an array instead of recursing. It handles utf8 nicely without losing the ability
+// to handle strings of arbitrary bytes. And it can reuse memory each time you
+// initialize or match against a regexp.
+//
+// It's mostly like perl regular expressions but I doctored it with some features
+// I think are useful from other regexp languages like \c (ignorecase), \< (left word
+// boundary), and \> (right word boundary), ^^ (start of line), and $$ (end of line).
+//
+// It supports greedy/nongreedy quantifiers.
+// It supports capture groups.
+// There are no flags (ignore case, multi line, single line, etc.).
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdarg.h>
-
-// This library implements regular expressions using an NFA graph. It backtracks using
-// an array instead of recursing. It handles utf8 nicely without losing the ability
-// to handle strings of arbitrary bytes (as long as they don't contain zero bytes).
-// It's mostly like perl regular expressions but is missing some of the lesser used
-// features. From vim regexp, I took \c (ignorecase), \< (left word boundary), and
-// \> (right word boundary). It supports greedy/nongreedy versions of all its quantifiers
-// (*?, +?, ??, {3,5}?). And it supports capture groups. There are no flags in
-// this regexp language, instead everything must be inside the regexp itself. So to
-// ignore case, you must supply the \c rule somewhere in the regexp string. To match
-// the start of a string you use ^, but to match the start of a line you use ^^.
 
 enum {
     EMPTY,
@@ -85,6 +90,7 @@ struct node_t {
 
 typedef struct {
     node_t *start;
+    int regexp_size;
     char *regexp;
     node_t *nodes;
     int nodes_count;
@@ -110,6 +116,7 @@ typedef struct {
 // The matcher maintains a list of positions that are important for backtracking
 // and for remembering captures.
 typedef struct {
+    int str_size;
     char *str;
     rx_t *rx;
     int path_count;
@@ -151,10 +158,12 @@ static int printnnl (char *fmt, ...) {
     return printf("%s", str2);
 }
 
-// Reads a utf8 character from src and determines how many bytes it is. If the src
-// doesn't contain a proper utf8 character, it returns 1. src should be NULL terminated.
-static int utf8_char_size (char *src, int pos) {
-    char c = src[pos];
+// Reads a utf8 character from str and determines how many bytes it is. If the str
+// doesn't contain a proper utf8 character, it returns 1. str needs to have at
+// least one byte in it, but can end right after that, even if the byte sequence is
+// invalid.
+static int utf8_char_size (int str_size, char *str, int pos) {
+    char c = str[pos];
     int size = 0;
     if ((c & 0x80) == 0x00) {
         size = 1;
@@ -168,8 +177,11 @@ static int utf8_char_size (char *src, int pos) {
         // Invalid utf8 starting byte
         size = 1;
     }
+    if (pos + size > str_size) {
+        return 1;
+    }
     for (int i = 1; i < size; i += 1) {
-        c = src[pos + i];
+        c = str[pos + i];
         if ((c & 0xc0) != 0x80) {
             // Didn't find a proper utf8 continuation byte 10xx_xxxx
             return 1;
@@ -201,25 +213,21 @@ static int hex_to_int (char *str, int size, unsigned int *dest) {
 static int int_to_utf8 (unsigned int value, char *str) {
     if (value < 0x80) {
         str[0] = value;
-        str[1] = '\0';
         return 1;
     } else if (value < 0x800) {
         str[0] = 0x80 | ((value & 0x7c) >> 6);
         str[1] = 0x80 | ((value & 0x3f) >> 0);
-        str[2] = '\0';
         return 2;
     } else if (value < 0x10000) {
         str[0] = 0xe0 | ((value & 0xf000) >> 12);
         str[1] = 0x80 | ((value & 0x0fc0) >> 6);
         str[2] = 0x80 | ((value & 0x003f) >> 0);
-        str[3] = '\0';
         return 3;
     } else if (value < 0x200000) {
         str[0] = 0xf0 | ((value & 0x1c0000) >> 18);
         str[1] = 0x80 | ((value & 0x03f000) >> 12);
         str[2] = 0x80 | ((value & 0x000fc0) >> 6);
         str[3] = 0x80 | ((value & 0x00003f) >> 0);
-        str[4] = '\0';
         return 4;
     } else {
         return 0;
@@ -359,13 +367,14 @@ int rx_error (rx_t *rx, char *fmt, ...) {
 int rx_char_class_parse (rx_t *rx, int pos, int *pos2, int save, char_class_t *ccval) {
     int value_count = 0, range_count = 0, char_set_count = 0;
     char *regexp = rx->regexp;
+    int regexp_size = rx->regexp_size;
     char c1, c2;
-    char char1[5], char2[5];
+    char char1[4], char2[4];
     int char1_size = 0, char2_size = 0;
     char seen_dash = 0;
     char seen_special = '\0';
 
-    while (regexp[pos]) {
+    while (pos < regexp_size) {
         c1 = regexp[pos];
         if (c1 == ']') {
             break;
@@ -374,11 +383,11 @@ int rx_char_class_parse (rx_t *rx, int pos, int *pos2, int save, char_class_t *c
             pos += 1;
             continue;
         } else if (c1 == '\\') {
-            c2 = regexp[pos + 1];
-            if (c2 == '\0') {
+            if (pos + 1 >= regexp_size) {
                 return rx_error(rx, "Expected character after \\.");
-
-            } else if (c2 == 'd' || c2 == 'D' || c2 == 'w' || c2 == 'W' || c2 == 's' || c2 == 'S' || c2 == 'N') {
+            }
+            c2 = regexp[pos + 1];
+            if (c2 == 'd' || c2 == 'D' || c2 == 'w' || c2 == 'W' || c2 == 's' || c2 == 'S' || c2 == 'N') {
                 // Something like \d or \D
                 if (seen_dash) {
                     return rx_error(rx, "Can't have \\%c after -.", c2);
@@ -409,6 +418,9 @@ int rx_char_class_parse (rx_t *rx, int pos, int *pos2, int save, char_class_t *c
 
             } else if (c2 == 'x') {
                 // \x3f
+                if (pos + 3 >= regexp_size) {
+                    return rx_error(rx, "Expected 2 characters after \\x.");
+                }
                 unsigned int i;
                 if (!hex_to_int(regexp + pos + 2, 2, &i)) {
                     return rx_error(rx, "Expected 2 hex digits after \\x.");
@@ -419,28 +431,31 @@ int rx_char_class_parse (rx_t *rx, int pos, int *pos2, int save, char_class_t *c
 
             } else if (c2 == 'u' || c2 == 'U') {
                 // \u2603 or \U00002603
-                int size = c2 == 'u' ? 4 : 8;
+                int count = c2 == 'u' ? 4 : 8;
+                if (pos + 1 + count >= regexp_size) {
+                    return rx_error(rx, "Expected %d characters after \\%c.", count, c2);
+                }
                 unsigned int i;
-                if (!hex_to_int(regexp + pos + 2, size, &i)) {
-                    return rx_error(rx, "Expected %d hex digits after \\%c.", size, c2);
+                if (!hex_to_int(regexp + pos + 2, count, &i)) {
+                    return rx_error(rx, "Expected %d hex digits after \\%c.", count, c2);
                 }
                 char2_size = int_to_utf8(i, char2);
                 if (!char2_size) {
                     return rx_error(rx, "Invalid \\%c sequence.", c2);
                 }
-                pos += 2 + size;
+                pos += 2 + count;
 
             } else {
                 // Any unrecognized backslash escape, for example \]
                 pos += 1;
-                char2_size = utf8_char_size(regexp, pos);
+                char2_size = utf8_char_size(regexp_size, regexp, pos);
                 memcpy(char2, regexp + pos, char2_size);
                 pos += char2_size;
             }
 
         } else {
             // An unspecial character, for example a or ☃
-            char2_size = utf8_char_size(regexp, pos);
+            char2_size = utf8_char_size(regexp_size, regexp, pos);
             memcpy(char2, regexp + pos, char2_size);
             pos += char2_size;
         }
@@ -492,7 +507,7 @@ int rx_char_class_parse (rx_t *rx, int pos, int *pos2, int save, char_class_t *c
         }
         value_count += 1;
     }
-    if (regexp[pos] != ']') {
+    if (pos >= regexp_size || regexp[pos] != ']') {
         return rx_error(rx, "Expected ].");
     }
     if (save) {
@@ -529,13 +544,20 @@ int rx_internal_alloc (rx_t *rx, int size) {
 // enter invalid bytes, and they will only match 1 byte at a time.
 int rx_char_class_init (rx_t *rx, int pos, int *pos2, int *ccval_offset) {
     char *regexp = rx->regexp;
+    int regexp_size = rx->regexp_size;
     char_class_t ccval = {};
     ccval.str = regexp + pos;
 
+    if (pos + 1 >= regexp_size) {
+        return rx_error(rx, "Expected a character after [.");
+    }
     pos += 1;
     char c1 = regexp[pos];
     if (c1 == '^') {
         ccval.negated = 1;
+        if (pos + 1 >= regexp_size) {
+            return rx_error(rx, "Expected a character in [.");
+        }
         pos += 1;
     }
 
@@ -569,11 +591,12 @@ int rx_char_class_init (rx_t *rx, int pos, int *pos2, int *ccval_offset) {
 }
 
 int rx_quantifier_init (rx_t *rx, int pos, int *pos2, int *qval_offset) {
+    int regexp_size = rx->regexp_size;
     char *regexp = rx->regexp;
     char c;
     int min = 0, minp = 1, max = 0, maxp = 1, greedy = 1;
     pos += 1;
-    for (; regexp[pos]; pos += 1) {
+    for (; pos < regexp_size; pos += 1) {
         c = regexp[pos];
         if (c >= '0' && c <= '9') {
             min = minp * min + (c - '0');
@@ -594,7 +617,7 @@ int rx_quantifier_init (rx_t *rx, int pos, int *pos2, int *qval_offset) {
             return rx_error(rx, "Unexpected character in quantifier.");
         }
     }
-    for (; regexp[pos]; pos += 1) {
+    for (; pos < regexp_size; pos += 1) {
         c = regexp[pos];
         if (c >= '0' && c <= '9') {
             max = maxp * max + (c - '0');
@@ -611,7 +634,7 @@ int rx_quantifier_init (rx_t *rx, int pos, int *pos2, int *qval_offset) {
     return rx_error(rx, "Quantifier not closed.");
 
     check_greedy:
-    c = regexp[pos + 1];
+    c = (pos + 1 < regexp_size) ? regexp[pos + 1] : '\0';
     if (c == '?') {
         // non greedy
         pos += 1;
@@ -641,29 +664,27 @@ matcher_t *rx_matcher_alloc () {
 }
 
 // Returns 1 on success
-int rx_init (rx_t *rx, char *regexp) {
+int rx_init (rx_t *rx, int regexp_size, char *regexp) {
     rx->error = 0;
 
     // Preallocate the space needed for nodes. Since each character can
     // add at most 2 nodes, the count of nodes needed shouldn't be
     // more than 2 * (x + 1). Also count the max capture nest depth, which can't
-    // take into account ) since it could be \) or [)] and there's no way to tell
-    // what kind of ) it is without a full parse.
+    // take into account ) since it could be \) or [)] without a full parse, so
+    // set it to the number of times ( appears in the regexp.
     //
     // All allocations that occur in rx_init are reuseable in subsequent calls to it.
     // Nothing is freed until rx_free() is called, and that only needs to happen
     // once when the user is entirely done with regexps.
     int cap_depth = 0;
     int max_cap_depth = 0;
-    int max_node_count = 0;
-    for (int pos = 0; regexp[pos]; pos += 1) {
+    int max_node_count = (regexp_size + 1) * 2;
+    for (int pos = 0; pos <= regexp_size; pos += 1) {
         char c = regexp[pos];
-        max_node_count += 1;
         if (c == '(') {
             max_cap_depth += 1;
         }
     }
-    max_node_count = (max_node_count + 1) * 2;
 
     if (max_node_count > rx->nodes_allocated) {
         rx->nodes_allocated = max_node_count;
@@ -678,6 +699,7 @@ int rx_init (rx_t *rx, char *regexp) {
 
     rx->data_count = 0;
     rx->nodes_count = 0;
+    rx->regexp_size = regexp_size;
     rx->regexp = regexp;
     rx->start = rx_node_create(rx);
     node_t *node = rx->start;
@@ -686,10 +708,10 @@ int rx_init (rx_t *rx, char *regexp) {
     rx->cap_count = 0;
     rx->ignorecase = 0;
 
-    for (int pos = 0; regexp[pos]; pos += 1) {
+    for (int pos = 0; pos < regexp_size; pos += 1) {
         unsigned char c = regexp[pos];
         if (c == '(') {
-            if (regexp[pos + 1] == '?' && regexp[pos + 2] == ':') {
+            if (pos + 2 < regexp_size && regexp[pos + 1] == '?' && regexp[pos + 2] == ':') {
                 pos += 2;
                 node->type = GROUP_START;
             }
@@ -757,7 +779,7 @@ int rx_init (rx_t *rx, char *regexp) {
             *node2 = *atom_start;
             atom_start->type = BRANCH;
             node->type = BRANCH;
-            char c2 = regexp[pos + 1];
+            char c2 = (pos + 1 < regexp_size) ? regexp[pos + 1] : '\0';
             if (c2 == '?') {
                 // non greedy
                 pos += 1;
@@ -780,7 +802,7 @@ int rx_init (rx_t *rx, char *regexp) {
             }
             node_t *node2 = rx_node_create(rx);
             node->type = BRANCH;
-            char c2 = regexp[pos + 1];
+            char c2 = (pos + 1 < regexp_size) ? regexp[pos + 1] : '\0';
             if (c2 == '?') {
                 // non greedy
                 pos += 1;
@@ -800,7 +822,7 @@ int rx_init (rx_t *rx, char *regexp) {
             node_t *node2 = rx_node_create(rx);
             *node2 = *atom_start;
             atom_start->type = BRANCH;
-            char c2 = regexp[pos + 1];
+            char c2 = (pos + 1 < regexp_size) ? regexp[pos + 1] : '\0';
             if (c2 == '?') {
                 // non greedy
                 pos += 1;
@@ -835,6 +857,9 @@ int rx_init (rx_t *rx, char *regexp) {
             node = node3;
 
         } else if (c == '\\') {
+            if (pos + 1 == regexp_size) {
+                return rx_error(rx, "Expected character after \\.");
+            }
             pos += 1;
             char c2 = regexp[pos];
             if (c2 == 'G') {
@@ -882,6 +907,9 @@ int rx_init (rx_t *rx, char *regexp) {
                 atom_start = node;
                 node = node2;
             } else if (c2 == 'x') {
+                if (pos + 2 >= regexp_size) {
+                    return rx_error(rx, "Expected 2 characters after \\x.");
+                }
                 unsigned int i;
                 if (!hex_to_int(regexp + pos + 1, 2, &i)) {
                     return rx_error(rx, "Expected 2 hex digits after \\x.");
@@ -895,17 +923,21 @@ int rx_init (rx_t *rx, char *regexp) {
                 node = node2;
             } else if (c2 == 'u' || c2 == 'U') {
                 int count = c2 == 'u' ? 4 : 8;
+                if (pos + count >= regexp_size) {
+                    return rx_error(rx, "Expected %d characters after \\%c.", count, c2);
+                }
                 unsigned int i;
                 if (!hex_to_int(regexp + pos + 1, count, &i)) {
                     return rx_error(rx, "Expected %d hex digits after \\%c.", count, c2);
                 }
                 pos += count;
-                char str[5];
-                if (!int_to_utf8(i, str)) {
+                char str[4];
+                int str_size = int_to_utf8(i, str);
+                if (!str_size) {
                     return rx_error(rx, "Invalid \\%c sequence.", c2);
                 }
                 atom_start = node;
-                for (i = 0; str[i]; i += 1) {
+                for (i = 0; i < str_size; i += 1) {
                     node_t *node2 = rx_node_create(rx);
                     node->type = CHAR;
                     node->next = node2;
@@ -927,7 +959,7 @@ int rx_init (rx_t *rx, char *regexp) {
             node_t *node2 = rx_node_create(rx);
             node->type = ASSERTION;
             node->next = node2;
-            char c2 = regexp[pos + 1];
+            char c2 = (pos + 1 < regexp_size) ? regexp[pos + 1] : '\0';
             if (c2 == '^') {
                 pos += 1;
                 node->value = ASSERT_SOL;
@@ -940,7 +972,7 @@ int rx_init (rx_t *rx, char *regexp) {
             node_t *node2 = rx_node_create(rx);
             node->type = ASSERTION;
             node->next = node2;
-            char c2 = regexp[pos + 1];
+            char c2 = (pos + 1 < regexp_size) ? regexp[pos + 1] : '\0';
             if (c2 == '$') {
                 pos += 1;
                 node->value = ASSERT_EOL;
@@ -995,7 +1027,8 @@ int rx_init (rx_t *rx, char *regexp) {
 //
 // The same matcher object can be used multiple times which will reuse the
 // memory allocated for previous matches.
-int rx_match (rx_t *rx, matcher_t *m, char *str, int start_pos) {
+int rx_match (rx_t *rx, matcher_t *m, int str_size, char *str, int start_pos) {
+    m->str_size = str_size;
     m->str = str;
     m->rx = rx;
     m->success = 0;
@@ -1016,7 +1049,7 @@ int rx_match (rx_t *rx, matcher_t *m, char *str, int start_pos) {
         retry_ignorecase = 0;
         retry:
 
-        c = str[pos];
+        c = (pos < str_size) ? str[pos] : '\0';
         if (retry_ignorecase) {
             if (c >= 'a' && c <= 'z') {
                 c -= 'a' - 'A';
@@ -1069,7 +1102,7 @@ int rx_match (rx_t *rx, matcher_t *m, char *str, int start_pos) {
             return 1;
 
         } else if (node->type == CHAR) {
-            if (c == '\0') {
+            if (pos >= str_size) {
                 goto try_alternative;
             }
             if (c == node->value) {
@@ -1184,12 +1217,12 @@ int rx_match (rx_t *rx, matcher_t *m, char *str, int start_pos) {
                     continue;
                 }
             } else if (node->value == ASSERT_EOS) {
-                if (c == '\0') {
+                if (pos == str_size) {
                     node = node->next;
                     continue;
                 }
             } else if (node->value == ASSERT_EOL) {
-                if (c == '\0' || c == '\n' || c == '\r') {
+                if (pos == str_size || c == '\n' || c == '\r') {
                     node = node->next;
                     continue;
                 }
@@ -1228,11 +1261,11 @@ int rx_match (rx_t *rx, matcher_t *m, char *str, int start_pos) {
 
         } else if (node->type == CHAR_CLASS) {
             int matched = 0;
-            if (c == '\0') {
+            if (pos >= str_size) {
                 goto try_alternative;
             }
 
-            int test_size = utf8_char_size(str, pos);
+            int test_size = utf8_char_size(str_size, str, pos);
             char *test = str + pos;
 
             // If retrying because of ignorecase, copy the char to a buffer to
@@ -1247,7 +1280,7 @@ int rx_match (rx_t *rx, matcher_t *m, char *str, int start_pos) {
             // Check the individual values
             char *value = rx->data + ccval->value_offset;
             for (int i = 0; i < ccval->value_count;) {
-                int char1_size = utf8_char_size(value, i);
+                int char1_size = utf8_char_size(ccval->value_count, value, i);
                 char *char1 = value + i;
                 if (test_size == char1_size && strncmp(test, char1, test_size) == 0) {
                     matched = 1;
@@ -1259,10 +1292,10 @@ int rx_match (rx_t *rx, matcher_t *m, char *str, int start_pos) {
             // Check the character ranges
             char *range = rx->data + ccval->range_offset;
             for (int i = 0; i < ccval->range_count;) {
-                int char1_size = utf8_char_size(range, i);
+                int char1_size = utf8_char_size(ccval->range_count, range, i);
                 char *char1 = range + i;
                 i += char1_size;
-                int char2_size = utf8_char_size(range, i);
+                int char2_size = utf8_char_size(ccval->range_count, range, i);
                 char *char2 = range + i;
                 i += char2_size;
 
@@ -1327,7 +1360,7 @@ int rx_match (rx_t *rx, matcher_t *m, char *str, int start_pos) {
             }
 
         } else if (node->type == CHAR_SET) {
-            if (c == '\0') {
+            if (pos >= str_size) {
                 goto try_alternative;
             }
             if (node->value == CS_ANY) {
@@ -1372,6 +1405,7 @@ int rx_match (rx_t *rx, matcher_t *m, char *str, int start_pos) {
                 }
             } else if (node->value == CS_NOTSPACE) {
                 if (!(c == ' ' || c == '\t' || c == '\n' || c == '\r')) {
+                    // TODO might make more sense to increment by an entire character
                     pos += 1;
                     node = node->next;
                     continue;
@@ -1436,16 +1470,19 @@ int rx_match (rx_t *rx, matcher_t *m, char *str, int start_pos) {
     return 0;
 }
 
-void rx_try (char *regexp, char *str) {
-    rx_init(rx, regexp);
+#define rx_try_literal(regexp, str) \
+    rx_try(sizeof(regexp) - 1, regexp, sizeof(str) - 1, str)
+
+void rx_try (int regexp_size, char *regexp, int str_size, char *str) {
+    rx_init(rx, regexp_size, regexp);
     if (rx->error) {
-        printf("Matching \"%s\" against /%s/.\n", str, regexp);
+        printf("Matching \"%.*s\" against /%.*s/.\n", str_size, str, regexp_size, regexp);
         printf("%s\n", rx->errorstr);
     }
     else {
         rx_print(rx);
-        printf("Matching \"%s\" against /%s/.\n", str, regexp);
-        rx_match(rx, m, str, 0);
+        printf("Matching \"%.*s\" against /%.*s/.\n", str_size, str, regexp_size, regexp);
+        rx_match(rx, m, str_size, str, 0);
         if (m->success) {
             printf("Match:");
             for (int i = 0; i < m->cap_count; i++) {
@@ -1460,29 +1497,35 @@ void rx_try (char *regexp, char *str) {
     }
 }
 
-void rx_try_global (char *regexp, char *str) {
-    rx_init(rx, regexp);
+#define rx_try_global_literal(regexp, str) \
+    rx_try_global(sizeof(regexp) - 1, regexp, sizeof(str) - 1, str)
+
+void rx_try_global (int regexp_size, char *regexp, int str_size, char *str) {
+    rx_init(rx, regexp_size, regexp);
     if (rx->error) {
-        printf("Matching \"%s\" against /%s/.\n", str, regexp);
+        printf("Matching \"%.*s\" against /%.*s/.\n", str_size, str, regexp_size, regexp);
         printf("%s\n", rx->errorstr);
     }
     else {
         rx_print(rx);
-        printf("Matching \"%s\" against /%s/ globally.\n", str, regexp);
-        int i = 0, j = 0, start_pos = 0;
+        printf("Matching \"%.*s\" against /%.*s/ globally.\n", str_size, str, regexp_size, regexp);
+        int i = 0,  start_pos = 0;
         for (i = 0;; i += 1) {
-            rx_match(rx, m, str, start_pos);
+            rx_match(rx, m, str_size, str, start_pos);
             if (!m->success) {
                 break;
             }
-            if (j == 0) {
+            if (i == 0) {
                 printf("Match:");
             }
             printf(" [%.*s]", m->cap_size[0], m->cap_str[0]);
-            j += 1;
-            start_pos = m->cap_end[0];
+            if (m->cap_end[0] > start_pos) {
+                start_pos = m->cap_end[0];
+            } else {
+                start_pos += 1;
+            }
         }
-        if (j == 0) {
+        if (i == 0) {
             printf("No match\n");
         } else {
             printf("\n");
@@ -1490,33 +1533,35 @@ void rx_try_global (char *regexp, char *str) {
     }
 }
 
-void rx_test (char *regexp, char *str, char *expected) {
+#define rx_test_literal(regexp, str, expected) \
+    rx_test(sizeof(regexp) - 1, regexp, sizeof(str) - 1, str, sizeof(expected) - 1, expected);
+
+void rx_test (int regexp_size, char *regexp, int str_size, char *str, int expected_size, char *expected) {
     static int test_count = 0;
     test_count += 1;
-    rx_init(rx, regexp);
+    rx_init(rx, regexp_size, regexp);
     if (rx->error) {
         printf("%s\n", rx->errorstr);
         exit(1);
     }
     else {
-        rx_match(rx, m, str, 0);
+        rx_match(rx, m, str_size, str, 0);
         if (m->success) {
             char *got = m->cap_str[0];
             int size = m->cap_size[0];
-            int expected_size = strlen(expected);
             if (expected_size != size || strncmp(expected, got, size) != 0) {
                 printf("not ");
             }
-            printf("ok %d - %s\n", test_count, regexp);
-            printnnl("    %s\n", str);
-            printnnl("    %s\n", expected);
+            printf("ok %d - %.*s\n", test_count, regexp_size, regexp);
+            printnnl("    %.*s\n", str_size, str);
+            printnnl("    %.*s\n", expected_size, expected);
             if (expected_size != size || strncmp(expected, got, size) != 0) {
                 printnnl("    %.*s\n", size, got);
             }
         } else {
-            printf("not ok %d - %s\n", test_count, regexp);
-            printnnl("    %s\n", str);
-            printnnl("    %s\n", expected);
+            printf("not ok %d - %.*s\n", test_count, regexp_size, regexp);
+            printnnl("    %.*s\n", str_size, str);
+            printnnl("    %.*s\n", expected_size, expected);
         }
     }
 }
@@ -1542,91 +1587,96 @@ void rx_matcher_free (matcher_t *m) {
 
 // A test suite of the features.
 void run_tests () {
-    rx_test("[a]+\\c", "A", "A");
-    rx_test("[\\w-]+", "foo-bar", "foo-bar");
-    rx_test("[\\-\\w]+", "foo-bar", "foo-bar");
-    rx_test("(☃)+", "[☃☃☃]", "☃☃☃");
-    rx_test("[\\U00010083]", "a𐂃bc☃☃def", "𐂃");
-    rx_test("[\\u2603]{2}", "abc☃☃def", "☃☃");
-    rx_test("\\(def\\)", "abc(def)ghi", "(def)");
-    rx_test("[\\[]", "abc[def]ghi", "[");
-    rx_test("[\\]]", "abc[def]ghi", "]");
-    rx_test("[[☁-★]+", "abcdef☃", "☃");
-    rx_test("[\\x0e-★]+", "abcdef☃", "abcdef☃");
-    rx_test("[\\x0e]", "as\nd\x0e f☃", "\x0e");
-    rx_test("[\\n]", "as\ndf☃", "\n");
-    rx_test("[α-ω]+", "It's all Ελληνικά to me", "λληνικ");
-    rx_test("\\W", "3abc☃", "\xe2");
-    rx_test("[\\W]", "3abc☃", "☃");
-    rx_test("[\\d\\w]*", "3abc", "3abc");
-    rx_test("[a\\dfc-g]*", "3abc", "3a");
-    rx_test("\\U00002603", "☃", "☃");
-    rx_test("\\u2603", "☃", "☃");
-    rx_test("\\xe2\\x98\\x83", "☃", "☃");
-    rx_test("\\S+", "abc 2345 def", "abc");
-    rx_test("\\s+", "abc 2345 def", " ");
-    rx_test("\\W+", "abc 2345 def", " ");
-    rx_test("\\w+", "abc 2345 def", "abc");
-    rx_test("\\D+", "abc 2345 def", "abc ");
-    rx_test("\\d+", "abc 2345 def", "2345");
-    rx_test("\\N+", "abc\ndef", "abc");
-    rx_test("\\n", "abc\ndef", "\n");
-    rx_test("(?:abc)", "abcdef", "abc");
-    rx_test("abc\\c", "ABC", "ABC");
-    rx_test(".+d", "abcdef", "abcd");
-    rx_test("[tea-d]{2,}", "The date is 2019-10-03", "date");
-    rx_test("[0-9]+-[0-9]+-[0-9]+", "The date is 2019-10-03", "2019-10-03");
-    rx_test("[fed]+", "abc def ghi", "def");
-    rx_test("\\Gabc", "abcdefghi", "abc");
-    rx_test("\\<def\\>", "abc def ghi", "def");
-    rx_test("def$$", "abc\ndef\nghi", "def");
-    rx_test("ghi$", "abc\ndef\nghi", "ghi");
-    rx_test("^^def", "abc\ndef", "def");
-    rx_test("^abc", "abc\ndef", "abc");
-    rx_test("ab|a(b|c)*", "abc", "ab");
-    rx_test("/(f|o|b|a|r|/){1,10}/", "/foo/o/bar/", "/foo/o/bar/");
-    rx_test("/(f|o|b|a|r|/){1,10}?/", "/foo/o/bar/", "/foo/");
-    rx_test("a(a|b)*?a", "abababababa", "aba");
-    rx_test("a(a|b)*a", "abababababa", "abababababa");
-    rx_test("a(a|b){0,}a", "abababababa", "abababababa");
-    rx_test("a(a|b){0,}?a", "abababababa", "aba");
-    rx_test("ra{2,4}", "jtraaabke", "raaa");
-    rx_test("ra{2,4}?", "jtraaabke", "raa");
-    rx_test("a{2,4}?b", "jtraaabke", "aaab");
-    rx_test("a{2,4}b", "jtraaabke", "aaab");
-    rx_test("(0|1|2|3|4|5|6|7|8|9){4}-(0|1|2|3|4|5|6|7|8|9){1,2}-(0|1|2|3|4|5|6|7|8|9){1,2}", "The date is 2019-10-01", "2019-10-01");
-    rx_test("(abc|bcd|jt|ghi)+aab", "jtrjtjtaabke", "jtjtaab");
-    rx_test("(abc|bcd|jtr|ghi)aab", "jtraabke", "jtraab");
-    rx_test("(a|b)*ab", "jtraabke", "aab");
-    rx_test("b((an)+)(an)", "bananana", "bananan");
-    rx_test("ab|ra|ke", "jtraabke", "ra");
-    rx_test("(a{2})*b", "jtraaabke", "aab");
-    rx_test("b((an){2}){1,3}", "bananananana", "banananan");
-    rx_test("a{2,1}b", "jtraaabke", "ab");
-    rx_test("a{2,}b", "jtraaabke", "aaab");
-    rx_test("a{2,4}b", "jtraaaaaaaaaabke", "aaaab");
-    rx_test("a{2}b", "jtraaabke", "aab");
-    rx_test("a*b", "jtraabke", "aab");
-    rx_test("(ab|ra|ke)", "jtraabke", "ra");
-    rx_test("ra?", "jtraabke", "ra");
-    rx_test("ra??", "jtraabke", "r");
-    rx_test("ra+?", "jtraabke", "ra");
-    rx_test("ra+", "jtraabke", "raa");
-    rx_test("a*?b", "jtraabke", "aab");
-    rx_test("aab", "jtraabke", "aab");
-    rx_test("ra*b", "jtraabke", "raab");
-    rx_test("ra*?", "jtraabke", "r");
-    //rx_test("a?a?a?a?a?a?a?a?a?a?a?a?a?a?a?aaaaaaaaaaaaaaa", "aaaaaaaaaaaaaaa", "aaaaaaaaaaaaaaa");
+    rx_test_literal("[a]+\\c", "A", "A");
+    rx_test_literal("[\\w-]+", "foo-bar", "foo-bar");
+    rx_test_literal("[\\-\\w]+", "foo-bar", "foo-bar");
+    rx_test_literal("(☃)+", "[☃☃☃]", "☃☃☃");
+    rx_test_literal("[\\U00010083]", "a𐂃bc☃☃def", "𐂃");
+    rx_test_literal("[\\u2603]{2}", "abc☃☃def", "☃☃");
+    rx_test_literal("\\(def\\)", "abc(def)ghi", "(def)");
+    rx_test_literal("[\\[]", "abc[def]ghi", "[");
+    rx_test_literal("[\\]]", "abc[def]ghi", "]");
+    rx_test_literal("[[☁-★]+", "abcdef☃", "☃");
+    rx_test_literal("[\\x0e-★]+", "abcdef☃", "abcdef☃");
+    rx_test_literal("[\\x0e]", "as\nd\x0e f☃", "\x0e");
+    rx_test_literal("[\\n]", "as\ndf☃", "\n");
+    rx_test_literal("[α-ω]+", "It's all Ελληνικά to me", "λληνικ");
+    rx_test_literal("\\W", "3abc☃", "\xe2");
+    rx_test_literal("[\\W]", "3abc☃", "☃");
+    rx_test_literal("[\\d\\w]*", "3abc", "3abc");
+    rx_test_literal("[a\\dfc-g]*", "3abc", "3a");
+    rx_test_literal("\\U00002603", "☃", "☃");
+    rx_test_literal("\\u2603", "☃", "☃");
+    rx_test_literal("\\xe2\\x98\\x83", "☃", "☃");
+    rx_test_literal("\\S+", "abc 2345 def", "abc");
+    rx_test_literal("\\s+", "abc 2345 def", " ");
+    rx_test_literal("\\W+", "abc 2345 def", " ");
+    rx_test_literal("\\w+", "abc 2345 def", "abc");
+    rx_test_literal("\\D+", "abc 2345 def", "abc ");
+    rx_test_literal("\\d+", "abc 2345 def", "2345");
+    rx_test_literal("\\N+", "abc\ndef", "abc");
+    rx_test_literal("\\n", "abc\ndef", "\n");
+    rx_test_literal("(?:abc)", "abcdef", "abc");
+    rx_test_literal("abc\\c", "ABC", "ABC");
+    rx_test_literal(".+d", "abcdef", "abcd");
+    rx_test_literal("[tea-d]{2,}", "The date is 2019-10-03", "date");
+    rx_test_literal("[0-9]+-[0-9]+-[0-9]+", "The date is 2019-10-03", "2019-10-03");
+    rx_test_literal("[fed]+", "abc def ghi", "def");
+    rx_test_literal("\\Gabc", "abcdefghi", "abc");
+    rx_test_literal("\\<def\\>", "abc def ghi", "def");
+    rx_test_literal("def$$", "abc\ndef\nghi", "def");
+    rx_test_literal("ghi$", "abc\ndef\nghi", "ghi");
+    rx_test_literal("^^def", "abc\ndef", "def");
+    rx_test_literal("^abc", "abc\ndef", "abc");
+    rx_test_literal("ab|a(b|c)*", "abc", "ab");
+    rx_test_literal("/(f|o|b|a|r|/){1,10}/", "/foo/o/bar/", "/foo/o/bar/");
+    rx_test_literal("/(f|o|b|a|r|/){1,10}?/", "/foo/o/bar/", "/foo/");
+    rx_test_literal("a(a|b)*?a", "abababababa", "aba");
+    rx_test_literal("a(a|b)*a", "abababababa", "abababababa");
+    rx_test_literal("a(a|b){0,}a", "abababababa", "abababababa");
+    rx_test_literal("a(a|b){0,}?a", "abababababa", "aba");
+    rx_test_literal("ra{2,4}", "jtraaabke", "raaa");
+    rx_test_literal("ra{2,4}?", "jtraaabke", "raa");
+    rx_test_literal("a{2,4}?b", "jtraaabke", "aaab");
+    rx_test_literal("a{2,4}b", "jtraaabke", "aaab");
+    rx_test_literal("(0|1|2|3|4|5|6|7|8|9){4}-(0|1|2|3|4|5|6|7|8|9){1,2}-(0|1|2|3|4|5|6|7|8|9){1,2}", "The date is 2019-10-01", "2019-10-01");
+    rx_test_literal("(abc|bcd|jt|ghi)+aab", "jtrjtjtaabke", "jtjtaab");
+    rx_test_literal("(abc|bcd|jtr|ghi)aab", "jtraabke", "jtraab");
+    rx_test_literal("(a|b)*ab", "jtraabke", "aab");
+    rx_test_literal("b((an)+)(an)", "bananana", "bananan");
+    rx_test_literal("ab|ra|ke", "jtraabke", "ra");
+    rx_test_literal("(a{2})*b", "jtraaabke", "aab");
+    rx_test_literal("b((an){2}){1,3}", "bananananana", "banananan");
+    rx_test_literal("a{2,1}b", "jtraaabke", "ab");
+    rx_test_literal("a{2,}b", "jtraaabke", "aaab");
+    rx_test_literal("a{2,4}b", "jtraaaaaaaaaabke", "aaaab");
+    rx_test_literal("a{2}b", "jtraaabke", "aab");
+    rx_test_literal("a*b", "jtraabke", "aab");
+    rx_test_literal("(ab|ra|ke)", "jtraabke", "ra");
+    rx_test_literal("ra?", "jtraabke", "ra");
+    rx_test_literal("ra??", "jtraabke", "r");
+    rx_test_literal("ra+?", "jtraabke", "ra");
+    rx_test_literal("ra+", "jtraabke", "raa");
+    rx_test_literal("a*?b", "jtraabke", "aab");
+    rx_test_literal("aab", "jtraabke", "aab");
+    rx_test_literal("ra*b", "jtraabke", "raab");
+    rx_test_literal("ra*?", "jtraabke", "r");
+    //rx_test_literal("a?a?a?a?a?a?a?a?a?a?a?a?a?a?a?aaaaaaaaaaaaaaa", "aaaaaaaaaaaaaaa", "aaaaaaaaaaaaaaa");
 }
 
 int main () {
     rx = rx_alloc();
     m = rx_matcher_alloc();
-    //run_tests();
-    //return 0;
-    rx_try("[a]+\\c", "AaAaBbBbaaAaBbBb");
+    run_tests();
+    //rx_try_global_literal("[a]+[\0]b\\c", "AaAa\0BbBbaaAa\0BbBb");
     rx_matcher_free(m);
     rx_free(rx);
+    printf("1..74\n");
     return 0;
 }
 
+// TODO program that does a match
+// TODO program that does a global match
+// TODO a program that counts the number of lines of top level blocks in a file
+// TODO a recursive grep program
+//
