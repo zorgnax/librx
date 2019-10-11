@@ -14,123 +14,11 @@
 // It supports capture groups.
 // There are no flags (ignore case, multi line, single line, etc.).
 
+#include "rx.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdarg.h>
-
-enum {
-    EMPTY,
-    CHAR,
-    BRANCH,
-    CAPTURE_START,
-    CAPTURE_END,
-    MATCH_END,
-    QUANTIFIER,
-    SUBGRAPH_END,
-    ASSERTION,
-    CHAR_CLASS, // [...]
-    CHAR_SET, // \d etc.
-    GROUP_START,
-    GROUP_END,
-};
-
-enum {
-    ASSERT_SOS, // start of string
-    ASSERT_SOL, // start of line
-    ASSERT_EOS, // end of string
-    ASSERT_EOL, // end of line
-    ASSERT_SOP, // start of position
-    ASSERT_SOW, // start of word
-    ASSERT_EOW, // end of word
-};
-
-enum {
-    CS_ANY,
-    CS_NOTNL,
-    CS_DIGIT,
-    CS_NOTDIGIT,
-    CS_WORD,
-    CS_NOTWORD,
-    CS_SPACE,
-    CS_NOTSPACE,
-};
-
-typedef struct node_t node_t;
-
-typedef struct {
-    int min;
-    int max;
-    int greedy;
-    node_t *next;
-} quantifier_t;
-
-typedef struct {
-    char negated;
-    int value_count;
-    int value_offset;
-    int range_count;
-    int range_offset;
-    int char_set_count;
-    int char_set_offset;
-    int str_size;
-    char *str;
-} char_class_t;
-
-struct node_t {
-    char type;
-    node_t *next;
-    union {
-        unsigned char value;
-        node_t *next2;
-        int qval_offset;
-        int ccval_offset;
-    };
-};
-
-typedef struct {
-    node_t *start;
-    int regexp_size;
-    char *regexp;
-    node_t *nodes;
-    int nodes_count;
-    int nodes_allocated;
-    int cap_count;
-    int max_cap_depth;
-    node_t **cap_start;
-    node_t **or_end;
-    int error;
-    char *errorstr;
-    int ignorecase;
-    char *data;
-    int data_count;
-    int data_allocated;
-} rx_t;
-
-typedef struct {
-    node_t *node;
-    int pos;
-    int visit;
-} path_t;
-
-// The matcher maintains a list of positions that are important for backtracking
-// and for remembering captures.
-typedef struct {
-    int str_size;
-    char *str;
-    rx_t *rx;
-    int path_count;
-    int path_allocated;
-    path_t *path;
-    int cap_count;
-    int cap_allocated;
-    int *cap_start;
-    int *cap_end;
-    char *cap_defined;
-    char **cap_str;
-    int *cap_size;
-    int success;
-} matcher_t;
 
 static rx_t *rx;
 static matcher_t *m;
@@ -190,27 +78,7 @@ static int utf8_char_size (int str_size, char *str, int pos) {
     return size;
 }
 
-static int hex_to_int (char *str, int size, unsigned int *dest) {
-    unsigned int value = 0;
-    for (int i = 0; i < size; i += 1) {
-        char c = str[i];
-        unsigned char b = 0;
-        if (c >= '0' && c <= '9') {
-            b = c - '0';
-        } else if (c >= 'a' && c <= 'f') {
-            b = c - 'a' + 10;
-        } else if (c >= 'A' && c <= 'F') {
-            b = c - 'A' + 10;
-        } else {
-            return 0;
-        }
-        value = (value << 4) | b;
-    }
-    *dest = value;
-    return 1;
-}
-
-static int int_to_utf8 (unsigned int value, char *str) {
+int rx_int_to_utf8 (unsigned int value, char *str) {
     if (value < 0x80) {
         str[0] = value;
         return 1;
@@ -234,6 +102,26 @@ static int int_to_utf8 (unsigned int value, char *str) {
     }
 }
 
+int rx_hex_to_int (char *str, int size, unsigned int *dest) {
+    unsigned int value = 0;
+    for (int i = 0; i < size; i += 1) {
+        char c = str[i];
+        unsigned char b = 0;
+        if (c >= '0' && c <= '9') {
+            b = c - '0';
+        } else if (c >= 'a' && c <= 'f') {
+            b = c - 'a' + 10;
+        } else if (c >= 'A' && c <= 'F') {
+            b = c - 'A' + 10;
+        } else {
+            return 0;
+        }
+        value = (value << 4) | b;
+    }
+    *dest = value;
+    return 1;
+}
+
 node_t *rx_node_create (rx_t *rx) {
     node_t *n = &rx->nodes[rx->nodes_count];
     rx->nodes_count += 1;
@@ -245,6 +133,32 @@ node_t *rx_node_create (rx_t *rx) {
 int rx_node_index (rx_t *rx, node_t *n) {
     int index = n - rx->nodes;
     return index;
+}
+
+void rx_match_print (matcher_t *m) {
+    printf("match success is %d\n", m->success);
+    if (!m->success) {
+        return;
+    }
+
+    printf("match capture count is %d\n", m->cap_count);
+    for (int i = 0; i < m->cap_count; i += 1) {
+        if (m->cap_defined[i]) {
+            printf("%d: %.*s\n", i, m->cap_size[i], m->cap_str[i]);
+        } else {
+            printf("%d: ~\n", i);
+        }
+    }
+
+    for (int i = 0; i < m->path_count; i += 1) {
+        path_t *p = &(m->path[i]);
+        if (p->node->type == CAPTURE_START) {
+            printf("capture %d start %d\n", p->node->value, p->pos);
+        } else if (p->node->type == CAPTURE_END) {
+            printf("capture %d end %d\n", p->node->value, p->pos);
+        }
+    }
+    printf("\n");
 }
 
 void rx_print (rx_t *rx) {
@@ -422,7 +336,7 @@ int rx_char_class_parse (rx_t *rx, int pos, int *pos2, int save, char_class_t *c
                     return rx_error(rx, "Expected 2 characters after \\x.");
                 }
                 unsigned int i;
-                if (!hex_to_int(regexp + pos + 2, 2, &i)) {
+                if (!rx_hex_to_int(regexp + pos + 2, 2, &i)) {
                     return rx_error(rx, "Expected 2 hex digits after \\x.");
                 }
                 char2_size = 1;
@@ -436,10 +350,10 @@ int rx_char_class_parse (rx_t *rx, int pos, int *pos2, int save, char_class_t *c
                     return rx_error(rx, "Expected %d characters after \\%c.", count, c2);
                 }
                 unsigned int i;
-                if (!hex_to_int(regexp + pos + 2, count, &i)) {
+                if (!rx_hex_to_int(regexp + pos + 2, count, &i)) {
                     return rx_error(rx, "Expected %d hex digits after \\%c.", count, c2);
                 }
-                char2_size = int_to_utf8(i, char2);
+                char2_size = rx_int_to_utf8(i, char2);
                 if (!char2_size) {
                     return rx_error(rx, "Invalid \\%c sequence.", c2);
                 }
@@ -911,7 +825,7 @@ int rx_init (rx_t *rx, int regexp_size, char *regexp) {
                     return rx_error(rx, "Expected 2 characters after \\x.");
                 }
                 unsigned int i;
-                if (!hex_to_int(regexp + pos + 1, 2, &i)) {
+                if (!rx_hex_to_int(regexp + pos + 1, 2, &i)) {
                     return rx_error(rx, "Expected 2 hex digits after \\x.");
                 }
                 pos += 2;
@@ -927,12 +841,12 @@ int rx_init (rx_t *rx, int regexp_size, char *regexp) {
                     return rx_error(rx, "Expected %d characters after \\%c.", count, c2);
                 }
                 unsigned int i;
-                if (!hex_to_int(regexp + pos + 1, count, &i)) {
+                if (!rx_hex_to_int(regexp + pos + 1, count, &i)) {
                     return rx_error(rx, "Expected %d hex digits after \\%c.", count, c2);
                 }
                 pos += count;
                 char str[4];
-                int str_size = int_to_utf8(i, str);
+                int str_size = rx_int_to_utf8(i, str);
                 if (!str_size) {
                     return rx_error(rx, "Invalid \\%c sequence.", c2);
                 }
@@ -1026,7 +940,8 @@ int rx_init (rx_t *rx, int regexp_size, char *regexp) {
 // it would be 0 for the start of the string. Returns 1 on success and 0 on failure.
 //
 // The same matcher object can be used multiple times which will reuse the
-// memory allocated for previous matches.
+// memory allocated for previous matches. All the captures are references into the
+// original string.
 int rx_match (rx_t *rx, matcher_t *m, int str_size, char *str, int start_pos) {
     m->str_size = str_size;
     m->str = str;
@@ -1542,7 +1457,6 @@ void rx_test (int regexp_size, char *regexp, int str_size, char *str, int expect
     rx_init(rx, regexp_size, regexp);
     if (rx->error) {
         printf("%s\n", rx->errorstr);
-        exit(1);
     }
     else {
         rx_match(rx, m, str_size, str, 0);
@@ -1564,6 +1478,7 @@ void rx_test (int regexp_size, char *regexp, int str_size, char *str, int expect
             printnnl("    %.*s\n", expected_size, expected);
         }
     }
+    printf("\n");
 }
 
 void rx_free (rx_t *rx) {
@@ -1664,19 +1579,18 @@ void run_tests () {
     //rx_test_literal("a?a?a?a?a?a?a?a?a?a?a?a?a?a?a?aaaaaaaaaaaaaaa", "aaaaaaaaaaaaaaa", "aaaaaaaaaaaaaaa");
 }
 
-int main () {
-    rx = rx_alloc();
-    m = rx_matcher_alloc();
-    run_tests();
-    //rx_try_global_literal("[a]+[\0]b\\c", "AaAa\0BbBbaaAa\0BbBb");
-    rx_matcher_free(m);
-    rx_free(rx);
-    printf("1..74\n");
-    return 0;
-}
+// int main () {
+//     rx = rx_alloc();
+//     m = rx_matcher_alloc();
+//     run_tests();
+//     //rx_try_global_literal("[a]+[\0]b\\c", "AaAa\0BbBbaaAa\0BbBb");
+//     rx_matcher_free(m);
+//     rx_free(rx);
+//     printf("1..74\n");
+//     return 0;
+// }
 
 // TODO program that does a match
 // TODO program that does a global match
 // TODO a program that counts the number of lines of top level blocks in a file
 // TODO a recursive grep program
-//

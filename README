@@ -71,30 +71,9 @@ the regexp of:
 would be very wrong since it would think you wanted to match 3 separate bytes no
 matter what order they came in.
 
-Regexp Test File Format
-=======================
+Testing
+=======
 
-Idea for the testing of this library, if I turned it into a full fledged project
-on it's own:
-
-In nfa.c there would be a function called rx_parse_test_file(), which can be used to test regular expressions against strings and test the output is as expected. The format of the input file is like this:
-
-# comment
-regexp
-    string
-    expected
-    string
-    expected
-    string
-    expected
-
-Comments must appear on a line by themselves.
-
-Strings and expected values need to be on only one line. So if they contain newlines, you have to use \n. The other backslash escapes are available too, includeing \x12, \u1234, \U12341234, \r, \t, and \e. Anything else that is backslashed will convert to itself.
-
-If an expected string is ~ that means it is not a match. If your expected string is actually just a ~, you need to backslash it as \~.
-
-If the expected string starts with a digit colon, like "1: expected", it will match capture 1, instead of capture 0, which is the whole match. If you want to match an empty string for the entire match, use "0: ", empty is different from a non-match ~. If your actual expected string is "1: blahblah", you will need to backslash the beginning 1 like "\1: blahblah".
-
-Regexps must start on the leftmost part of the line. Strings and expected strings must be indented.
+The library is tested by running the program written in test.c. It reads testdata.txt
+and outputs test results. Read test.c for a description of the format of testdata.txt.
 
