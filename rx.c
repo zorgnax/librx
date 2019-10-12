@@ -1,18 +1,6 @@
 //
 // librx
 //
-// This library implements regular expressions using an NFA graph. It backtracks using
-// an array instead of recursing. It handles utf8 nicely without losing the ability
-// to handle strings of arbitrary bytes. And it can reuse memory each time you
-// initialize or match against a regexp.
-//
-// It's mostly like perl regular expressions but I doctored it with some features
-// I think are useful from other regexp languages like \c (ignorecase), \< (left word
-// boundary), and \> (right word boundary), ^^ (start of line), and $$ (end of line).
-//
-// It supports greedy/nongreedy quantifiers.
-// It supports capture groups.
-// There are no flags (ignore case, multi line, single line, etc.).
 
 #include "rx.h"
 #include <stdio.h>

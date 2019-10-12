@@ -1,10 +1,38 @@
 librx
 =====
 
+This is a regular expression library. It can take a regular expression and match
+a string against it. For example, the regular expression:
+
+    (abc)+\d+
+
+Could be used to match against a string like:
+
+    abcabcabc123
+
+It's mostly like perl regular expressions but I doctored it with some features I
+think are useful from other regexp languages like \c (ignorecase), \< (left word
+boundary), and \> (right word boundary), ^^ (start of line), and $$ (end of line).
+
+It backtracks using an array instead of recursing.
+
+It handles utf8 nicely without losing the ability to handle strings of arbitrary bytes.
+
+It can reuse memory each time you create or match against a regexp.
+
+It supports greedy/nongreedy quantifiers.
+
+It supports capture groups.
+
+There are no flags (ignore case, multi line, single line, etc.). Instead there are
+syntactical features inside of the regexp you can use. For example, instead of /i
+flag, use the \c escape sequence.
+
 Regular expression features supported
 =====================================
 
 abc            character
+αβγ            unicode character
 a|b|c          or
 (abc)          capture group
 (?:abc)        non-capture group
@@ -45,7 +73,7 @@ abc$$          end of line
 Character oriented square brackets
 ==================================
 
-The [] operator in this regexp parser are character oriented, so if you a have a
+The [] operator in this regexp library is character oriented, so if you a have a
 string like "☃" and you apply regexp like this to it:
 
     [\W]
