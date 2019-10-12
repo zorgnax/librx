@@ -23,34 +23,11 @@
 static rx_t *rx;
 static matcher_t *m;
 
-// Print with no new line, except if it appears as the last character.
-static int printnnl (char *fmt, ...) {
-    static char str[256];
-    static char str2[256];
-    va_list args;
-    va_start(args, fmt);
-    vsnprintf(str, 256, fmt, args);
-    va_end(args);
-    int j = 0;
-    for (int i = 0; str[i]; i += 1) {
-        if (str[i] == '\n' && str[i + 1] != '\0') {
-            strcpy(str2 + j, " \u2424 ");
-            j += 5;
-        }
-        else {
-            str2[j] = str[i];
-            j += 1;
-        }
-    }
-    str2[j] = '\0';
-    return printf("%s", str2);
-}
-
 // Reads a utf8 character from str and determines how many bytes it is. If the str
 // doesn't contain a proper utf8 character, it returns 1. str needs to have at
 // least one byte in it, but can end right after that, even if the byte sequence is
 // invalid.
-static int utf8_char_size (int str_size, char *str, int pos) {
+int rx_utf8_char_size (int str_size, char *str, int pos) {
     char c = str[pos];
     int size = 0;
     if ((c & 0x80) == 0x00) {
@@ -362,14 +339,14 @@ int rx_char_class_parse (rx_t *rx, int pos, int *pos2, int save, char_class_t *c
             } else {
                 // Any unrecognized backslash escape, for example \]
                 pos += 1;
-                char2_size = utf8_char_size(regexp_size, regexp, pos);
+                char2_size = rx_utf8_char_size(regexp_size, regexp, pos);
                 memcpy(char2, regexp + pos, char2_size);
                 pos += char2_size;
             }
 
         } else {
             // An unspecial character, for example a or ☃
-            char2_size = utf8_char_size(regexp_size, regexp, pos);
+            char2_size = rx_utf8_char_size(regexp_size, regexp, pos);
             memcpy(char2, regexp + pos, char2_size);
             pos += char2_size;
         }
@@ -1180,7 +1157,7 @@ int rx_match (rx_t *rx, matcher_t *m, int str_size, char *str, int start_pos) {
                 goto try_alternative;
             }
 
-            int test_size = utf8_char_size(str_size, str, pos);
+            int test_size = rx_utf8_char_size(str_size, str, pos);
             char *test = str + pos;
 
             // If retrying because of ignorecase, copy the char to a buffer to
@@ -1195,7 +1172,7 @@ int rx_match (rx_t *rx, matcher_t *m, int str_size, char *str, int start_pos) {
             // Check the individual values
             char *value = rx->data + ccval->value_offset;
             for (int i = 0; i < ccval->value_count;) {
-                int char1_size = utf8_char_size(ccval->value_count, value, i);
+                int char1_size = rx_utf8_char_size(ccval->value_count, value, i);
                 char *char1 = value + i;
                 if (test_size == char1_size && strncmp(test, char1, test_size) == 0) {
                     matched = 1;
@@ -1207,10 +1184,10 @@ int rx_match (rx_t *rx, matcher_t *m, int str_size, char *str, int start_pos) {
             // Check the character ranges
             char *range = rx->data + ccval->range_offset;
             for (int i = 0; i < ccval->range_count;) {
-                int char1_size = utf8_char_size(ccval->range_count, range, i);
+                int char1_size = rx_utf8_char_size(ccval->range_count, range, i);
                 char *char1 = range + i;
                 i += char1_size;
-                int char2_size = utf8_char_size(ccval->range_count, range, i);
+                int char2_size = rx_utf8_char_size(ccval->range_count, range, i);
                 char *char2 = range + i;
                 i += char2_size;
 
@@ -1448,39 +1425,6 @@ void rx_try_global (int regexp_size, char *regexp, int str_size, char *str) {
     }
 }
 
-#define rx_test_literal(regexp, str, expected) \
-    rx_test(sizeof(regexp) - 1, regexp, sizeof(str) - 1, str, sizeof(expected) - 1, expected);
-
-void rx_test (int regexp_size, char *regexp, int str_size, char *str, int expected_size, char *expected) {
-    static int test_count = 0;
-    test_count += 1;
-    rx_init(rx, regexp_size, regexp);
-    if (rx->error) {
-        printf("%s\n", rx->errorstr);
-    }
-    else {
-        rx_match(rx, m, str_size, str, 0);
-        if (m->success) {
-            char *got = m->cap_str[0];
-            int size = m->cap_size[0];
-            if (expected_size != size || strncmp(expected, got, size) != 0) {
-                printf("not ");
-            }
-            printf("ok %d - %.*s\n", test_count, regexp_size, regexp);
-            printnnl("    %.*s\n", str_size, str);
-            printnnl("    %.*s\n", expected_size, expected);
-            if (expected_size != size || strncmp(expected, got, size) != 0) {
-                printnnl("    %.*s\n", size, got);
-            }
-        } else {
-            printf("not ok %d - %.*s\n", test_count, regexp_size, regexp);
-            printnnl("    %.*s\n", str_size, str);
-            printnnl("    %.*s\n", expected_size, expected);
-        }
-    }
-    printf("\n");
-}
-
 void rx_free (rx_t *rx) {
     free(rx->nodes);
     free(rx->cap_start);
@@ -1500,97 +1444,8 @@ void rx_matcher_free (matcher_t *m) {
     free(m);
 }
 
-// A test suite of the features.
-void run_tests () {
-    rx_test_literal("[a]+\\c", "A", "A");
-    rx_test_literal("[\\w-]+", "foo-bar", "foo-bar");
-    rx_test_literal("[\\-\\w]+", "foo-bar", "foo-bar");
-    rx_test_literal("(☃)+", "[☃☃☃]", "☃☃☃");
-    rx_test_literal("[\\U00010083]", "a𐂃bc☃☃def", "𐂃");
-    rx_test_literal("[\\u2603]{2}", "abc☃☃def", "☃☃");
-    rx_test_literal("\\(def\\)", "abc(def)ghi", "(def)");
-    rx_test_literal("[\\[]", "abc[def]ghi", "[");
-    rx_test_literal("[\\]]", "abc[def]ghi", "]");
-    rx_test_literal("[[☁-★]+", "abcdef☃", "☃");
-    rx_test_literal("[\\x0e-★]+", "abcdef☃", "abcdef☃");
-    rx_test_literal("[\\x0e]", "as\nd\x0e f☃", "\x0e");
-    rx_test_literal("[\\n]", "as\ndf☃", "\n");
-    rx_test_literal("[α-ω]+", "It's all Ελληνικά to me", "λληνικ");
-    rx_test_literal("\\W", "3abc☃", "\xe2");
-    rx_test_literal("[\\W]", "3abc☃", "☃");
-    rx_test_literal("[\\d\\w]*", "3abc", "3abc");
-    rx_test_literal("[a\\dfc-g]*", "3abc", "3a");
-    rx_test_literal("\\U00002603", "☃", "☃");
-    rx_test_literal("\\u2603", "☃", "☃");
-    rx_test_literal("\\xe2\\x98\\x83", "☃", "☃");
-    rx_test_literal("\\S+", "abc 2345 def", "abc");
-    rx_test_literal("\\s+", "abc 2345 def", " ");
-    rx_test_literal("\\W+", "abc 2345 def", " ");
-    rx_test_literal("\\w+", "abc 2345 def", "abc");
-    rx_test_literal("\\D+", "abc 2345 def", "abc ");
-    rx_test_literal("\\d+", "abc 2345 def", "2345");
-    rx_test_literal("\\N+", "abc\ndef", "abc");
-    rx_test_literal("\\n", "abc\ndef", "\n");
-    rx_test_literal("(?:abc)", "abcdef", "abc");
-    rx_test_literal("abc\\c", "ABC", "ABC");
-    rx_test_literal(".+d", "abcdef", "abcd");
-    rx_test_literal("[tea-d]{2,}", "The date is 2019-10-03", "date");
-    rx_test_literal("[0-9]+-[0-9]+-[0-9]+", "The date is 2019-10-03", "2019-10-03");
-    rx_test_literal("[fed]+", "abc def ghi", "def");
-    rx_test_literal("\\Gabc", "abcdefghi", "abc");
-    rx_test_literal("\\<def\\>", "abc def ghi", "def");
-    rx_test_literal("def$$", "abc\ndef\nghi", "def");
-    rx_test_literal("ghi$", "abc\ndef\nghi", "ghi");
-    rx_test_literal("^^def", "abc\ndef", "def");
-    rx_test_literal("^abc", "abc\ndef", "abc");
-    rx_test_literal("ab|a(b|c)*", "abc", "ab");
-    rx_test_literal("/(f|o|b|a|r|/){1,10}/", "/foo/o/bar/", "/foo/o/bar/");
-    rx_test_literal("/(f|o|b|a|r|/){1,10}?/", "/foo/o/bar/", "/foo/");
-    rx_test_literal("a(a|b)*?a", "abababababa", "aba");
-    rx_test_literal("a(a|b)*a", "abababababa", "abababababa");
-    rx_test_literal("a(a|b){0,}a", "abababababa", "abababababa");
-    rx_test_literal("a(a|b){0,}?a", "abababababa", "aba");
-    rx_test_literal("ra{2,4}", "jtraaabke", "raaa");
-    rx_test_literal("ra{2,4}?", "jtraaabke", "raa");
-    rx_test_literal("a{2,4}?b", "jtraaabke", "aaab");
-    rx_test_literal("a{2,4}b", "jtraaabke", "aaab");
-    rx_test_literal("(0|1|2|3|4|5|6|7|8|9){4}-(0|1|2|3|4|5|6|7|8|9){1,2}-(0|1|2|3|4|5|6|7|8|9){1,2}", "The date is 2019-10-01", "2019-10-01");
-    rx_test_literal("(abc|bcd|jt|ghi)+aab", "jtrjtjtaabke", "jtjtaab");
-    rx_test_literal("(abc|bcd|jtr|ghi)aab", "jtraabke", "jtraab");
-    rx_test_literal("(a|b)*ab", "jtraabke", "aab");
-    rx_test_literal("b((an)+)(an)", "bananana", "bananan");
-    rx_test_literal("ab|ra|ke", "jtraabke", "ra");
-    rx_test_literal("(a{2})*b", "jtraaabke", "aab");
-    rx_test_literal("b((an){2}){1,3}", "bananananana", "banananan");
-    rx_test_literal("a{2,1}b", "jtraaabke", "ab");
-    rx_test_literal("a{2,}b", "jtraaabke", "aaab");
-    rx_test_literal("a{2,4}b", "jtraaaaaaaaaabke", "aaaab");
-    rx_test_literal("a{2}b", "jtraaabke", "aab");
-    rx_test_literal("a*b", "jtraabke", "aab");
-    rx_test_literal("(ab|ra|ke)", "jtraabke", "ra");
-    rx_test_literal("ra?", "jtraabke", "ra");
-    rx_test_literal("ra??", "jtraabke", "r");
-    rx_test_literal("ra+?", "jtraabke", "ra");
-    rx_test_literal("ra+", "jtraabke", "raa");
-    rx_test_literal("a*?b", "jtraabke", "aab");
-    rx_test_literal("aab", "jtraabke", "aab");
-    rx_test_literal("ra*b", "jtraabke", "raab");
-    rx_test_literal("ra*?", "jtraabke", "r");
-    //rx_test_literal("a?a?a?a?a?a?a?a?a?a?a?a?a?a?a?aaaaaaaaaaaaaaa", "aaaaaaaaaaaaaaa", "aaaaaaaaaaaaaaa");
-}
-
-// int main () {
-//     rx = rx_alloc();
-//     m = rx_matcher_alloc();
-//     run_tests();
-//     //rx_try_global_literal("[a]+[\0]b\\c", "AaAa\0BbBbaaAa\0BbBb");
-//     rx_matcher_free(m);
-//     rx_free(rx);
-//     printf("1..74\n");
-//     return 0;
-// }
-
 // TODO program that does a match
 // TODO program that does a global match
 // TODO a program that counts the number of lines of top level blocks in a file
 // TODO a recursive grep program
+

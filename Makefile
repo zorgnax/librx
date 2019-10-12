@@ -1,5 +1,5 @@
 CC = clang
-CFLAGS = -g
+CFLAGS =
 PREFIX ?= $(DESTDIR)/usr/local
 
 all: librx.dylib test

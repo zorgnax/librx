@@ -1,306 +1,308 @@
-[\n]
-    as\ndf☃
+# Run ./test to run these tests. See test.c for a description of this file format.
+
+\x20[\n]\x20\x20d
+    as \n  df☃
+    0: \x20\n  d
+
+[a]+\c
+    A
+    0: A
+    a
+    0: a
+    B
+    0: ~
+
+[\w-]+
+    foo-bar
+    0: foo-bar
+
+# backslash the - and it becomes a regular character, not a range
+[\-\w]+
+    foo-bar
+    0: foo-bar
+
+(☃)+
+    [☃☃☃]
+    0: ☃☃☃
+
+[\U00010083]
+    a𐂃bc☃☃def
+    0: 𐂃
+
+[\u2603]{2}
+    abc☃☃def
+    0: ☃☃
+
+\(def\)
+    abc(def)ghi
+    0: (def)
+
+[\[]
+    abc[def]ghi
+    0: [
+
+[\]]
+    abc[def]ghi
+    0: ]
+
+# [ in [...] actually ok
+[[☁-★]+
+    abcdef☃
+    0: ☃
+
+[\x0e-★]+
+    abcdef☃
+    0: abcdef☃
+
+[\x0e]
+    as\nd\x0e f☃
+    0: \x0e
+
+[α-ω]+
+    It's all Ελληνικά to me
+    0: λληνικ
+
+\W
+    3abc☃
+    0: \xe2
+
+[\W]
+    3abc☃
+    0: ☃
+
+[\d\w]*
+    3abc
+    0: 3abc
+
+[a\dfc-g]*
+    3abc
+    0: 3a
+
+\U00002603
+    ☃
+    0: ☃
+
+\u2603
+    ☃
+    0: ☃
+
+\xe2\x98\x83
+    ☃
+    0: ☃
+
+\S+
+    abc 2345 def
+    0: abc
+
+\s+
+    abc 2345 def
+    0: \x20
+
+\W+
+    abc 2345 def
+    0: \x20
+
+\w+
+    abc 2345 def
+    0: abc
+
+\D+
+    abc 2345 def
+    0: abc 
+
+\d+
+    abc 2345 def
+    0: 2345
+
+\N+
+    abc\ndef
+    0: abc
+
+\n
+    abc\ndef
     0: \n
 
-# [a]+\c
-#     A
-#     0: A
-#     a
-#     0: a
-#     B
-#     0: ~
-# 
-# [\w-]+
-#     foo-bar
-#     0: foo-bar
-# 
-# # backslash the - and it becomes a regular character, not a range
-# [\-\w]+
-#     foo-bar
-#     0: foo-bar
-# 
-# (☃)+
-#     [☃☃☃]
-#     0: ☃☃☃
-# 
-# [\U00010083]
-#     a𐂃bc☃☃def
-#     0: 𐂃
-# 
-# [\u2603]{2}
-#     abc☃☃def
-#     0: ☃☃
-# 
-# \(def\)
-#     abc(def)ghi
-#     0: (def)
-# 
-# [\[]
-#     abc[def]ghi
-#     0: [
-# 
-# [\]]
-#     abc[def]ghi
-#     0: ]
-# 
-# # [ in [...] actually ok
-# [[☁-★]+
-#     abcdef☃
-#     0: ☃
-# 
-# [\x0e-★]+
-#     abcdef☃
-#     0: abcdef☃
-# 
-# [\x0e]
-#     as\nd\x0e f☃
-#     0: \x0e
-# 
-# [α-ω]+
-#     It's all Ελληνικά to me
-#     0: λληνικ
-# 
-# \W
-#     3abc☃
-#     0: \xe2
-# 
-# [\W]
-#     3abc☃
-#     0: ☃
-# 
-# [\d\w]*
-#     3abc
-#     0: 3abc
-# 
-# [a\dfc-g]*
-#     3abc
-#     0: 3a
-# 
-# \U00002603
-#     ☃
-#     0: ☃
-# 
-# \u2603
-#     ☃
-#     0: ☃
-# 
-# \xe2\x98\x83
-#     ☃
-#     0: ☃
-# 
-# \S+
-#     abc 2345 def
-#     0: abc
-# 
-# \s+
-#     abc 2345 def
-#     0: 
-# 
-# \W+
-#     abc 2345 def
-#     0: 
-# 
-# \w+
-#     abc 2345 def
-#     0: abc
-# 
-# \D+
-#     abc 2345 def
-#     0: abc 
-# 
-# \d+
-#     abc 2345 def
-#     0: 2345
-# 
-# \N+
-#     abc\ndef
-#     0: abc
-# 
-# \n
-#     abc\ndef
-#     0: \n
-# 
-# (?:abc)
-#     abcdef
-#     0: abc
-# 
-# abc\c
-#     ABC
-#     0: ABC
-# 
-# .+d
-#     abcdef
-#     0: abcd
-# 
-# [tea-d]{2,}
-#     The date is 2019-10-03
-#     0: date
-# 
-# [0-9]+-[0-9]+-[0-9]+
-#     The date is 2019-10-03
-#     0: 2019-10-03
-# 
-# [fed]+
-#     abc def ghi
-#     0: def
-# 
-# \Gabc
-#     abcdefghi
-#     0: abc
-# 
-# \<def\>
-#     abc def ghi
-#     0: def
-# 
-# def$$
-#     abc\ndef\nghi
-#     0: def
-# 
-# ghi$
-#     abc\ndef\nghi
-#     0: ghi
-# 
-# ^^def
-#     abc\ndef
-#     0: def
-# 
-# ^abc
-#     abc\ndef
-#     0: abc
-# 
-# ab|a(b|c)*
-#     abc
-#     0: ab
-# 
-# /(f|o|b|a|r|/){1,10}/
-#     /foo/o/bar/
-#     0: /foo/o/bar/
-# 
-# /(f|o|b|a|r|/){1,10}?/
-#     /foo/o/bar/
-#     0: /foo/
-# 
-# a(a|b)*?a
-#     abababababa
-#     0: aba
-# 
-# a(a|b)*a
-#     abababababa
-#     0: abababababa
-# 
-# a(a|b){0,}a
-#     abababababa
-#     0: abababababa
-# 
-# a(a|b){0,}?a
-#     abababababa
-#     0: aba
-# 
-# ra{2,4}
-#     jtraaabke
-#     0: raaa
-# 
-# ra{2,4}?
-#     jtraaabke
-#     0: raa
-# 
-# a{2,4}?b
-#     jtraaabke
-#     0: aaab
-# 
-# a{2,4}b
-#     jtraaabke
-#     0: aaab
-# 
-# (0|1|2|3|4|5|6|7|8|9){4}-(0|1|2|3|4|5|6|7|8|9){1,2}-(0|1|2|3|4|5|6|7|8|9){1,2}
-#     The date is 2019-10-01
-#     0: 2019-10-01
-# 
-# (abc|bcd|jt|ghi)+aab
-#     jtrjtjtaabke
-#     0: jtjtaab
-# 
-# (abc|bcd|jtr|ghi)aab
-#     jtraabke
-#     0: jtraab
-# 
-# (a|b)*ab
-#     jtraabke
-#     0: aab
-# 
-# b((an)+)(an)
-#     bananana
-#     0: bananan
-# 
-# ab|ra|ke
-#     jtraabke
-#     0: ra
-# 
-# (a{2})*b
-#     jtraaabke
-#     0: aab
-# 
-# b((an){2}){1,3}
-#     bananananana
-#     0: banananan
-# 
-# a{2,1}b
-#     jtraaabke
-#     0: ab
-# 
-# a{2,}b
-#     jtraaabke
-#     0: aaab
-# 
-# a{2,4}b
-#     jtraaaaaaaaaabke
-#     0: aaaab
-# 
-# a{2}b
-#     jtraaabke
-#     0: aab
-# 
-# a*b
-#     jtraabke
-#     0: aab
-# 
-# (ab|ra|ke)
-#     jtraabke
-#     0: ra
-# 
-# ra?
-#     jtraabke
-#     0: ra
-# 
-# ra??
-#     jtraabke
-#     0: r
-# 
-# ra+?
-#     jtraabke
-#     0: ra
-# 
-# ra+
-#     jtraabke
-#     0: raa
-# 
-# a*?b
-#     jtraabke
-#     0: aab
-# 
-# aab
-#     jtraabke
-#     0: aab
-# 
-# ra*b
-#     jtraabke
-#     0: raab
-# 
-# ra*?
-#     jtraabke
-#     0: r
-# 
-# a?a?a?a?a?a?a?a?a?a?a?a?a?a?a?aaaaaaaaaaaaaaa
-#     aaaaaaaaaaaaaaa
-#     0: aaaaaaaaaaaaaaa
-# 
+(?:abc)
+    abcdef
+    0: abc
+
+abc\c
+    ABC
+    0: ABC
+
+.+d
+    abcdef
+    0: abcd
+
+[tea-d]{2,}
+    The date is 2019-10-03
+    0: date
+
+[0-9]+-[0-9]+-[0-9]+
+    The date is 2019-10-03
+    0: 2019-10-03
+
+[fed]+
+    abc def ghi
+    0: def
+
+\Gabc
+    abcdefghi
+    0: abc
+
+\<def\>
+    abc def ghi
+    0: def
+
+def$$
+    abc\ndef\nghi
+    0: def
+
+ghi$
+    abc\ndef\nghi
+    0: ghi
+
+^^def
+    abc\ndef
+    0: def
+
+^abc
+    abc\ndef
+    0: abc
+
+ab|a(b|c)*
+    abc
+    0: ab
+
+/(f|o|b|a|r|/){1,10}/
+    /foo/o/bar/
+    0: /foo/o/bar/
+
+/(f|o|b|a|r|/){1,10}?/
+    /foo/o/bar/
+    0: /foo/
+
+a(a|b)*?a
+    abababababa
+    0: aba
+
+a(a|b)*a
+    abababababa
+    0: abababababa
+
+a(a|b){0,}a
+    abababababa
+    0: abababababa
+
+a(a|b){0,}?a
+    abababababa
+    0: aba
+
+ra{2,4}
+    jtraaabke
+    0: raaa
+
+ra{2,4}?
+    jtraaabke
+    0: raa
+
+a{2,4}?b
+    jtraaabke
+    0: aaab
+
+a{2,4}b
+    jtraaabke
+    0: aaab
+
+(0|1|2|3|4|5|6|7|8|9){4}-(0|1|2|3|4|5|6|7|8|9){1,2}-(0|1|2|3|4|5|6|7|8|9){1,2}
+    The date is 2019-10-01
+    0: 2019-10-01
+
+(abc|bcd|jt|ghi)+aab
+    jtrjtjtaabke
+    0: jtjtaab
+
+(abc|bcd|jtr|ghi)aab
+    jtraabke
+    0: jtraab
+
+(a|b)*ab
+    jtraabke
+    0: aab
+
+b((an)+)(an)
+    bananana
+    0: bananan
+
+ab|ra|ke
+    jtraabke
+    0: ra
+
+(a{2})*b
+    jtraaabke
+    0: aab
+
+b((an){2}){1,3}
+    bananananana
+    0: banananan
+
+a{2,1}b
+    jtraaabke
+    0: ab
+
+a{2,}b
+    jtraaabke
+    0: aaab
+
+a{2,4}b
+    jtraaaaaaaaaabke
+    0: aaaab
+
+a{2}b
+    jtraaabke
+    0: aab
+
+a*b
+    jtraabke
+    0: aab
+
+(ab|ra|ke)
+    jtraabke
+    0: ra
+
+ra?
+    jtraabke
+    0: ra
+
+ra??
+    jtraabke
+    0: r
+
+ra+?
+    jtraabke
+    0: ra
+
+ra+
+    jtraabke
+    0: raa
+
+a*?b
+    jtraabke
+    0: aab
+
+aab
+    jtraabke
+    0: aab
+
+ra*b
+    jtraabke
+    0: raab
+
+ra*?
+    jtraabke
+    0: r
+
+a?a?a?a?a?a?a?a?a?a?a?a?a?a?a?aaaaaaaaaaaaaaa
+    aaaaaaaaaaaaaaa
+    0: aaaaaaaaaaaaaaa
+

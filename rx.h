@@ -122,6 +122,9 @@ int rx_match (rx_t *rx, matcher_t *m, int str_size, char *str, int start_pos);
 void rx_match_print (matcher_t *m);
 int rx_hex_to_int (char *str, int size, unsigned int *dest);
 int rx_int_to_utf8 (unsigned int value, char *str);
+int rx_utf8_char_size (int str_size, char *str, int pos);
+void rx_matcher_free (matcher_t *m);
+void rx_free (rx_t *rx);
 
 #endif
 

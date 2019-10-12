@@ -1,4 +1,4 @@
-// This is a program runs a testsuite on the librx library. It reads testdata.txt
+// This is a program that runs a testsuite on the librx library. It reads testdata.txt
 // for regular expressions and strings to run those regular expressions against and
 // check if the result is the expected result. The output is in tap format. The input
 // format is something like this:
@@ -26,10 +26,10 @@
 // If an expected string is ~ that means it is not a match. If your expected string
 // is actually just a ~, you need to backslash the ~.
 // 
-// If the expected string starts with a digit colon, like "1: expected", it will match
-// capture 1. Most of the time you would use capture 0, which is the whole match. If
-// you want to match an empty string for the entire match, use "0: ", empty is different
-// from a non-match ~. 
+// The expected string starts with a digit colon, like "1: expected", it will match
+// capture 1. If it starts "0: expected", it will be the whole match. If you want to
+// match an empty string for the entire match, use "0: ", empty is different from a
+// non-match ~.
 // 
 
 #include "rx.h"
@@ -59,6 +59,9 @@ urstr_t *test_string;
 int expected_count;
 int expected_allocated;
 urstr_t *expected;
+int got_count;
+int got_allocated;
+urstr_t *got;
 
 int read_file (char *file, char **data2) {
     int fd = open(file, O_RDONLY);
@@ -93,6 +96,7 @@ int read_file (char *file, char **data2) {
     return data_size;
 }
 
+// \n becomes an actual newline, same for \r \t \e \x## \u#### and \U########
 void unescape (urstr_t *s) {
     // unescaped versions of strings are always less than or equal to the src string
     // for example \n goes from 2 characters to 1 character
@@ -172,7 +176,123 @@ void unescape (urstr_t *s) {
     s->usize = j;
 }
 
-void fill_expected_arrays (matcher_t *m) {
+// newlines become \n (similar for \r \t and \e)
+// anything below \x20 becomes \x##
+// starting and ending whitespace become \x20
+// broken utf8 characters become \x##\x##\x##
+void escape (urstr_t *s) {
+    // Rough estimate the size
+    int size = 0, i = 0, j = 0;
+    for (int i = 0; i < s->usize; i++) {
+        unsigned char c = s->ustr[i];
+        if (c <= 0x20) {
+            size += 4;
+        } else if (c >= 0x80) {
+            size += 4;
+        } else {
+            size += 1;
+        }
+    }
+
+    if (s->allocated < size) {
+        s->allocated = size;
+        s->str = realloc(s->str, s->allocated);
+    }
+    s->size = 0;
+
+    // Initial whitespace becomes \x20
+    for (i = 0; i < s->usize; i += 1) {
+        unsigned char c = s->ustr[i];
+        if (c == ' ') {
+            strncpy(s->str + j, "\\x20", 4);
+            j += 4;
+        } else {
+            break;
+        }
+    }
+
+    // Main conversion loop
+    static char itoh[] = "0123456789abcdef";
+    for (; i < s->usize; i += 1) {
+        unsigned char c = s->ustr[i];
+        if (c == '\n') {
+            strncpy(s->str + j, "\\n", 2);
+            j += 2;
+        } else if (c == '\r') {
+            strncpy(s->str + j, "\\r", 2);
+            j += 2;
+        } else if (c == '\t') {
+            strncpy(s->str + j, "\\t", 2);
+            j += 2;
+        } else if (c == '\x1b') {
+            strncpy(s->str + j, "\\e", 2);
+            j += 2;
+        } else if (c < 0x20) {
+            s->str[j + 0] = '\\';
+            s->str[j + 1] = 'x';
+            s->str[j + 2] = itoh[c / 16];
+            s->str[j + 3] = itoh[c % 16];
+            j += 4;
+        } else if (c < 0x80) {
+            s->str[j] = c;
+            j += 1;
+        } else {
+            size = rx_utf8_char_size(s->usize, s->ustr, i);
+            if (size == 1) {
+                s->str[j + 1] = '\\';
+                s->str[j + 2] = 'x';
+                s->str[j + 3] = itoh[c / 16];
+                s->str[j + 4] = itoh[c % 16];
+                j += 4;
+            } else {
+                strncpy(s->str + j, s->ustr + i, size);
+                j += size;
+                i += size - 1;
+            }
+        }
+    }
+
+    // Ending whitespace becomes \x20
+    for (; j > 0; j -= 1, i -= 1) {
+        unsigned char c = s->str[j - 1];
+        if (c != ' ') {
+            break;
+        }
+    }
+    for (; i < s->usize; i += 1) {
+        strncpy(s->str + j, "\\x20", 4);
+        j += 4;
+    }
+    s->size = j;
+}
+
+void fill_got_array (matcher_t *m) {
+    got_count = m->cap_count;
+    if (got_allocated < got_count) {
+        int count;
+        if (got_allocated == 0) {
+            count = 10;
+        } else {
+            count = got_allocated * 2;
+        }
+        if (count < got_count) {
+            count += got_count;
+        }
+        got = realloc(got, count * sizeof(urstr_t));
+        memset(got + got_allocated, 0, (count - got_allocated) * sizeof(urstr_t));
+        got_allocated = count;
+    }
+    for (int i = 0; i < m->cap_count; i += 1) {
+        if (test_m->cap_defined[i]) {
+            urstr_t *s = got + i;
+            s->ustr = test_m->cap_str[i];
+            s->usize = test_m->cap_size[i];
+            escape(s);
+        }
+    }
+}
+
+void fill_expected_array (matcher_t *m) {
     expected_count = 0;
 
     int en_start = 0, en_end = 0, es_start = 0, es_end = 0;
@@ -191,16 +311,19 @@ void fill_expected_arrays (matcher_t *m) {
         }
     }
 
-    if (expected_count > expected_allocated) {
+    if (expected_allocated < expected_count) {
+        int count;
         if (expected_allocated == 0) {
-            expected_allocated = 10;
+            count = 10;
         } else {
-            expected_allocated *= 2;
+            count = expected_allocated * 2;
         }
-        if (expected_count > expected_allocated) {
-            expected_allocated += expected_count;
+        if (expected_count > count) {
+            count += expected_count;
         }
-        expected = realloc(expected, expected_allocated * sizeof(urstr_t));
+        expected = realloc(expected, count * sizeof(urstr_t));
+        memset(expected + expected_allocated, 0, (count - expected_allocated) * sizeof(urstr_t));
+        expected_allocated = count;
     }
 
     for (int i = 0; i < expected_count; i++) {
@@ -305,9 +428,11 @@ void run_test () {
     }
     if (fail && test_m->success) {
         printf("    got:\n");
+        fill_got_array(test_m);
         for (int i = 0; i < test_m->cap_count; i += 1) {
             if (test_m->cap_defined[i]) {
-                printf("    %d: %.*s\n", i, test_m->cap_size[i], test_m->cap_str[i]);
+                urstr_t *s = got + i;
+                printf("    %d: %.*s\n", i, s->size, s->str);
             }
         }
     }
@@ -318,15 +443,35 @@ void run_test () {
     printf("\n");
 }
 
+void usage () {
+    char str[] =
+        "Usage: ./test [-h]\n"
+        "    -h          help text\n"
+        "\n"
+        "This program runs the testsuite against librx.\n";
+    puts(str);
+    exit(0);
+}
+
+void get_opts (int argc, char **argv) {
+    for (int i = 1; i < argc; i += 1) {
+        char *arg = argv[i];
+        if (strcmp(arg, "-h") == 0 || strcmp(arg, "--help") == 0 || strcmp(arg, "-help") == 0 || strcmp(arg, "-?") == 0) {
+            usage();
+        } else {
+            printf("Unrecognized option \"%s\"\n", arg);
+            exit(1);
+        }
+    }
+}
+
 int main (int argc, char **argv) {
+    get_opts(argc, argv);
+
     char *data;
     int data_size = read_file("testdata.txt", &data);
 
     test_string = malloc(sizeof(urstr_t));
-    expected_count = 0;
-    expected_allocated = 10;
-    expected = malloc(expected_allocated * sizeof(urstr_t));
-
     test_rx = rx_alloc();
     test_m = rx_matcher_alloc();
 
@@ -363,14 +508,11 @@ int main (int argc, char **argv) {
         int content_size = m->cap_size[2];
         pos = m->cap_end[2];
 
-        // printf("test regexp is %.*s\n", test_regexp_size, test_regexp);
-        // printf("test content is [%.*s]\n", content_size, content);
-        
         rx_init(test_rx, test_regexp_size, test_regexp);
         if (test_rx->error) {
             test_count += 1;
             printf("not ok %d - %.*s\n", test_count, test_regexp_size, test_regexp);
-            printf("    Can't compile regexp: %s\n", test_rx->errorstr);
+            printf("    %s\n\n", test_rx->errorstr);
             continue;
         }
 
@@ -386,7 +528,7 @@ int main (int argc, char **argv) {
             test_string->size = m->cap_size[1];
             unescape(test_string);
 
-            fill_expected_arrays(m);
+            fill_expected_array(m);
 
             run_test();
         }
@@ -399,6 +541,4 @@ int main (int argc, char **argv) {
     }
     return 0;
 }
-
-// TODO add a -h option
 
