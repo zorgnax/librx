@@ -10,6 +10,9 @@ librx.dylib: rx.c rx.h
 test: test.c librx.dylib
 	$(CC) $(CFLAGS) $^ -o $@
 
+check: test
+	./test
+
 clean:
 	rm -rf a.out *.dSYM librx.dylib test
 
