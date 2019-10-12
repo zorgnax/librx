@@ -101,12 +101,13 @@ int rx_node_index (rx_t *rx, node_t *n) {
 }
 
 void rx_match_print (matcher_t *m) {
-    printf("match success is %d\n", m->success);
-    if (!m->success) {
+    if (m->success) {
+        printf("matched\n");
+    } else {
+        printf("it didn't match\n");
         return;
     }
 
-    printf("match capture count is %d\n", m->cap_count);
     for (int i = 0; i < m->cap_count; i += 1) {
         if (m->cap_defined[i]) {
             printf("%d: %.*s\n", i, m->cap_size[i], m->cap_str[i]);
@@ -123,7 +124,6 @@ void rx_match_print (matcher_t *m) {
             printf("capture %d end %d\n", p->node->value, p->pos);
         }
     }
-    printf("\n");
 }
 
 void rx_print (rx_t *rx) {
@@ -1350,69 +1350,6 @@ int rx_match (rx_t *rx, matcher_t *m, int str_size, char *str, int start_pos) {
     return 0;
 }
 
-#define rx_try_literal(regexp, str) \
-    rx_try(sizeof(regexp) - 1, regexp, sizeof(str) - 1, str)
-
-void rx_try (int regexp_size, char *regexp, int str_size, char *str) {
-    rx_init(rx, regexp_size, regexp);
-    if (rx->error) {
-        printf("Matching \"%.*s\" against /%.*s/.\n", str_size, str, regexp_size, regexp);
-        printf("%s\n", rx->errorstr);
-    }
-    else {
-        rx_print(rx);
-        printf("Matching \"%.*s\" against /%.*s/.\n", str_size, str, regexp_size, regexp);
-        rx_match(rx, m, str_size, str, 0);
-        if (m->success) {
-            printf("Match:");
-            for (int i = 0; i < m->cap_count; i++) {
-                if (m->cap_defined[i]) {
-                    printf(" [%.*s]", m->cap_size[i], m->cap_str[i]);
-                }
-            }
-            printf("\n");
-        } else {
-            printf("No match\n");
-        }
-    }
-}
-
-#define rx_try_global_literal(regexp, str) \
-    rx_try_global(sizeof(regexp) - 1, regexp, sizeof(str) - 1, str)
-
-void rx_try_global (int regexp_size, char *regexp, int str_size, char *str) {
-    rx_init(rx, regexp_size, regexp);
-    if (rx->error) {
-        printf("Matching \"%.*s\" against /%.*s/.\n", str_size, str, regexp_size, regexp);
-        printf("%s\n", rx->errorstr);
-    }
-    else {
-        rx_print(rx);
-        printf("Matching \"%.*s\" against /%.*s/ globally.\n", str_size, str, regexp_size, regexp);
-        int i = 0,  start_pos = 0;
-        for (i = 0;; i += 1) {
-            rx_match(rx, m, str_size, str, start_pos);
-            if (!m->success) {
-                break;
-            }
-            if (i == 0) {
-                printf("Match:");
-            }
-            printf(" [%.*s]", m->cap_size[0], m->cap_str[0]);
-            if (m->cap_end[0] > start_pos) {
-                start_pos = m->cap_end[0];
-            } else {
-                start_pos += 1;
-            }
-        }
-        if (i == 0) {
-            printf("No match\n");
-        } else {
-            printf("\n");
-        }
-    }
-}
-
 void rx_free (rx_t *rx) {
     free(rx->nodes);
     free(rx->cap_start);
@@ -1432,8 +1369,9 @@ void rx_matcher_free (matcher_t *m) {
     free(m);
 }
 
-// TODO program that does a match
-// TODO program that does a global match
 // TODO a program that counts the number of lines of top level blocks in a file
 // TODO a recursive grep program
+// TODO synopsis and code examples in README
+// TODO output from rx_print in README
+// TODO output from rx_match_print in README
 

@@ -1,5 +1,18 @@
 # Run ./test to run these tests. See test.c for a description of this file format.
 
+"[^"]*"
+    Have "you seen the" Muffin man.
+    0: "you seen the"
+
+"(\\.|[^"])*"
+    Have "you \\"seen\\" the" Muffin man.
+    0: "you \\"seen\\" the"
+
+# this is an infinite loop
+# "([^"]*|\\.)*"
+#     Have "you \\"seen\\" the" Muffin man.
+#     0: asdf
+
 \x20[\n]\x20\x20d
     as \n  df☃
     0: \x20\n  d

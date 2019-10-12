@@ -28,6 +28,8 @@ There are no flags (ignore case, multi line, single line, etc.). Instead there a
 syntactical features inside of the regexp you can use. For example, instead of /i
 flag, use the \c escape sequence.
 
+It uses string size instead of looking for a zero byte to indicate end of string. This is useful for binary strings that contain inner zero bytes, and for matching inside larger strings that you might not want the regexp to go further than a particular spot.
+
 Regular expression features supported
 =====================================
 
