@@ -78,30 +78,30 @@ Regular expression features supported
 Character oriented square brackets
 ==================================
 
-The [] operator in this regexp library is character oriented, so if you a have a
-string like "☃" and you apply regexp like this to it:
+The `[]` operator in this regexp library is character oriented, so if you a have a
+string like `"☃"` and you apply regexp like this to it:
 
     [\W]
 
-It would match the entire non-word character of "☃". However if you didnt have
+It would match the entire non-word character of `"☃"`. However if you didnt have
 that in a character class and instead used a regexp like:
 
     \W
 
-It would match the first non-word byte in the string, which for "☃", would match
-"\xe2". "☃" is represented in utf8 as "\xe2\x98\x83".
+It would match the first non-word byte in the string, which for `"☃"`, would match
+`"\xe2"`. `"☃"` is represented in utf8 as `"\xe2\x98\x83"`.
 
 Normally, outside of a character class, it doesn't matter if you match byte by
 byte since you will match all 3 of them in a row. For example, a regexp of:
 
     ☃
 
-would match the string "☃" since those bytes are in order. In a character class,
+would match the string `"☃"` since those bytes are in order. In a character class,
 the regexp of:
 
     [☃]
 
-would be very wrong since it would think you wanted to match 3 separate bytes no
+would be wrong since it would think you wanted to match 3 separate bytes no
 matter what order they came in.
 
 Testing
