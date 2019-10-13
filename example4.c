@@ -52,6 +52,8 @@ int read_file (char *file, char **data2) {
         }
     }
 
+    close(fd);
+
     *data2 = data;
     return data_size;
 }

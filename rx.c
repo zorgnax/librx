@@ -8,9 +8,6 @@
 #include <string.h>
 #include <stdarg.h>
 
-static rx_t *rx;
-static matcher_t *m;
-
 // Reads a utf8 character from str and determines how many bytes it is. If the str
 // doesn't contain a proper utf8 character, it returns 1. str needs to have at
 // least one byte in it, but can end right after that, even if the byte sequence is
@@ -1339,7 +1336,7 @@ int rx_match (rx_t *rx, matcher_t *m, int str_size, char *str, int start_pos) {
         if (rx->start->type == ASSERTION && (rx->start->value == ASSERT_SOS || rx->start->value == ASSERT_SOP)) {
             break;
         }
-        if (!str[start_pos]) {
+        if (start_pos == str_size) {
             break;
         }
         m->path_count = 0;
@@ -1369,7 +1366,6 @@ void rx_matcher_free (matcher_t *m) {
     free(m);
 }
 
-// TODO a recursive grep program
 // TODO synopsis and code examples in README
 // TODO output from rx_print in README
 // TODO output from rx_match_print in README

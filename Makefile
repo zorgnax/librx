@@ -2,7 +2,7 @@ CC = clang
 CFLAGS =
 PREFIX ?= $(DESTDIR)/usr/local
 
-all: librx.dylib testsuite example1 example2 example3 example4
+all: librx.dylib testsuite example1 example2 example3 example4 example5
 
 librx.dylib: rx.c rx.h
 	$(CC) -dynamiclib $(CFLAGS) $(filter %.c, $^) -o $@
@@ -22,8 +22,11 @@ example3: example3.c librx.dylib
 example4: example4.c librx.dylib
 	$(CC) $(CFLAGS) $^ -o $@
 
-check: test
-	./test
+example5: example5.c librx.dylib
+	$(CC) $(CFLAGS) $^ -o $@
+
+check: testsuite
+	./testsuite
 
 install: librx.dylib rx.h
 	mkdir -p $(PREFIX)/lib $(PREFIX)/include

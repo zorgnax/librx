@@ -93,7 +93,8 @@ int read_file (char *file, char **data2) {
             data_size += retval;
         }
     }
-
+    
+    close(fd);
     *data2 = data;
     return data_size;
 }
