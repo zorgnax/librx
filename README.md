@@ -25,8 +25,8 @@ It supports greedy/nongreedy quantifiers.
 It supports capture groups.
 
 There are no flags (ignore case, multi line, single line, etc.). Instead there are
-syntactical features inside of the regexp you can use. For example, instead of /i
-flag, use the \c escape sequence.
+syntactical features inside of the regexp you can use. For example, instead of `/i`
+flag, use the `\c` escape sequence.
 
 It uses string size instead of looking for a zero byte to indicate end of string.
 This is useful for binary strings that contain inner zero bytes, and for matching
@@ -36,44 +36,44 @@ particular spot.
 Regular expression features supported
 =====================================
 
-abc            character
-αβγ            unicode character
-a|b|c          or
-(abc)          capture group
-(?:abc)        non-capture group
-a*             zero or more
-a+             one or more
-a?             zero or one
-a{3,5}         quantified
-a*?            zero or more nongreedy
-a+?            one or more nongreedy
-a??            zero or one nongreedy
-a{3,5}?        quantified nongreedy
-^abc           start of string
-^^abc          start of line
-abc$           end of string
-abc$$          end of line
-\Gabc          start of position
-\<abc\>        word boundaries
-\c             ignore case
-[abc]          character class
-[a-z]          ranges in character class
-[α-ω]          unicode character ranges too
-.              any character
-\n             newline
-\r             carriage return
-\t             tab
-\e             escape
-\N             not newline
-\d             digit character
-\D             not digit character
-\w             word character
-\W             not word character
-\s             space character
-\S             not space character
-\x2a           hex character
-\u2603         4 digit hex unicode codepoint
-\U00002603     8 digit hex unicode codepoint
+    abc            character
+    αβγ            unicode character
+    a|b|c          or
+    (abc)          capture group
+    (?:abc)        non-capture group
+    a*             zero or more
+    a+             one or more
+    a?             zero or one
+    a{3,5}         quantified
+    a*?            zero or more nongreedy
+    a+?            one or more nongreedy
+    a??            zero or one nongreedy
+    a{3,5}?        quantified nongreedy
+    ^abc           start of string
+    ^^abc          start of line
+    abc$           end of string
+    abc$$          end of line
+    \Gabc          start of position
+    \<abc\>        word boundaries
+    \c             ignore case
+    [abc]          character class
+    [a-z]          ranges in character class
+    [α-ω]          unicode character ranges too
+    .              any character
+    \n             newline
+    \r             carriage return
+    \t             tab
+    \e             escape
+    \N             not newline
+    \d             digit character
+    \D             not digit character
+    \w             word character
+    \W             not word character
+    \s             space character
+    \S             not space character
+    \x2a           hex character
+    \u2603         4 digit hex unicode codepoint
+    \U00002603     8 digit hex unicode codepoint
 
 Character oriented square brackets
 ==================================
@@ -163,17 +163,17 @@ Captures
 The match object stores capture information in several fields. A capture is a
 region in the regexp surrounded by parentheses. The 0 capture is the entire regexp.
 
-cap_count (int), contains the number of captures found.
+`cap_count (int)`, contains the number of captures found.
 
-cap_start (int []), contains the start position of the capture at a given index.
+`cap_start (int [])`, contains the start position of the capture at a given index.
 
-cap_end (int []), contains the end position of the capture.
+`cap_end (int [])`, contains the end position of the capture.
 
-cap_defined (char []), contains whether the capture was found.
+`cap_defined (char [])`, contains whether the capture was found.
 
-cap_str (char * []), contains a pointer to the start of the capture.
+`cap_str (char * [])`, contains a pointer to the start of the capture.
 
-cap_size (int []), contains the size, in bytes, of the capture.
+`cap_size (int [])`, contains the size, in bytes, of the capture.
 
 Recovering Overwritten Captures
 ===============================
@@ -259,36 +259,36 @@ message. The output for a regexp like:
 
 Would look like:
 
-                ┌─────┐       ┌────┐
-  ┌───────────▶ │  7  │ ◀──── │ 0B │
-  │             └─────┘       └────┘
-  │               │             :
-  │               │ (1          :
-  │               ▼             ▼
-  │             ┌─────┐       ┌────┐
-  │             │ 1C  │ ─┐    │ 8E │
-  │             └─────┘  │    └────┘
-  │               ▲      │      ▲
-  │               │      │ ⧹w   :
-  │               │      │      :
-  │             ┌─────┐  │      :
-  │             │ 2B  │ ◀┘      :
-  │             └─────┘         :
-  │               :             :
-  │               :             :
-  │               ▼             :
-  │  ┌───┐      ┌─────┐         :
-  │  │ 5 │ ◀─── │ 3B  │         :
-  │  └───┘      └─────┘         :
-  │    │          :             :
-  │    │          :             :
-  │    │          ▼             :
-  │    │   .    ┌─────┐         :
-  │    └──────▶ │  4  │         :
-  │             └─────┘         :
-  │               │             :
-  │               │ )1          :
-  │               ▼             :
-  │             ┌─────┐         :
-  └──────────── │ 6B  │ ········┘
-                └─────┘
+                    ┌─────┐       ┌────┐
+      ┌───────────▶ │  7  │ ◀──── │ 0B │
+      │             └─────┘       └────┘
+      │               │             :
+      │               │ (1          :
+      │               ▼             ▼
+      │             ┌─────┐       ┌────┐
+      │             │ 1C  │ ─┐    │ 8E │
+      │             └─────┘  │    └────┘
+      │               ▲      │      ▲
+      │               │      │ ⧹w   :
+      │               │      │      :
+      │             ┌─────┐  │      :
+      │             │ 2B  │ ◀┘      :
+      │             └─────┘         :
+      │               :             :
+      │               :             :
+      │               ▼             :
+      │  ┌───┐      ┌─────┐         :
+      │  │ 5 │ ◀─── │ 3B  │         :
+      │  └───┘      └─────┘         :
+      │    │          :             :
+      │    │          :             :
+      │    │          ▼             :
+      │    │   .    ┌─────┐         :
+      │    └──────▶ │  4  │         :
+      │             └─────┘         :
+      │               │             :
+      │               │ )1          :
+      │               ▼             :
+      │             ┌─────┐         :
+      └──────────── │ 6B  │ ········┘
+                    └─────┘
