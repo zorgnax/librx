@@ -11,8 +11,8 @@ Could be used to match against a string like:
     abcabcabc123
 
 It's mostly like perl regular expressions but I doctored it with some features I
-think are useful from other regexp languages like \c (ignorecase), \< (left word
-boundary), and \> (right word boundary), ^^ (start of line), and $$ (end of line).
+think are useful from other regexp languages like `\c` (ignorecase), `\<` (left word
+boundary), and `\>` (right word boundary), `^^` (start of line), and `$$` (end of line).
 
 It backtracks using an array instead of recursing.
 
