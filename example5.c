@@ -246,7 +246,7 @@ void find (int size, char *file) {
         fprintf(stderr, "Can't open %s: %s\n", file, strerror(errno));
         return;
     }
-    
+
     struct stat st;
     int retval = fstat(fd, &st);
     if (retval < 0) {
@@ -262,7 +262,7 @@ void find (int size, char *file) {
             if (eq(de->d_name, ".") || eq(de->d_name, "..")) {
                 continue;
             }
-            int size2 = size + de->d_namlen + 2;
+            int size2 = size + strlen(de->d_name) + 2;
             char *file2 = malloc(size2);
             sprintf(file2, "%s/%s", file, de->d_name);
             find(size2, file2);
@@ -278,7 +278,7 @@ void find (int size, char *file) {
 int main (int argc, char **argv) {
     char *argv2[argc];
     int argc2 = 0;
-    
+
     for (int i = 1; i < argc; i += 1) {
         if (eq(argv[i], "-h")) {
             usage();
@@ -316,6 +316,7 @@ int main (int argc, char **argv) {
 
     if (argc2 == 0) {
         printf("A regexp is required.\n");
+        return 1;
     }
     char *regexp = argv2[0];
     rx = rx_alloc();

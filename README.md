@@ -107,9 +107,11 @@ matter what order they came in.
 Testing
 =======
 
-The library is tested by running ./testsuite in the project directory. It reads
-testdata.txt and outputs test results in tap format. Read testsuite.c for a
-description of the format of testdata.txt.
+The library is tested by running ./testsuite in the project directory. It
+reads testdata.txt and outputs test results in tap format. Read
+testsuite.c for a description of the format of testdata.txt. If trying to
+run it on linux, make sure to set the environment variable LD_LIBRARY_PATH
+to ".".
 
 Installation
 ============

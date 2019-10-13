@@ -1,41 +1,50 @@
 CC = clang
 CFLAGS =
 PREFIX ?= $(DESTDIR)/usr/local
+OS := $(shell uname -s)
 
-all: librx.dylib testsuite example1 example2 example3 example4 example5
+ifeq "$(OS)" "Darwin"
+    LFLAGS = -dynamiclib
+    LIB = librx.dylib
+else
+    LFLAGS = -shared -fPIC
+    LIB = librx.so
+endif
 
-librx.dylib: rx.c rx.h
-	$(CC) -dynamiclib $(CFLAGS) $(filter %.c, $^) -o $@
+all: $(LIB) testsuite example1 example2 example3 example4 example5
 
-testsuite: testsuite.c librx.dylib
+$(LIB): rx.c rx.h
+	$(CC) $(LFLAGS) $(CFLAGS) $(filter %.c, $^) -o $@
+
+testsuite: testsuite.c $(LIB)
 	$(CC) $(CFLAGS) $^ -o $@
 
-example1: example1.c librx.dylib
+example1: example1.c $(LIB)
 	$(CC) $(CFLAGS) $^ -o $@
 
-example2: example2.c librx.dylib
+example2: example2.c $(LIB)
 	$(CC) $(CFLAGS) $^ -o $@
 
-example3: example3.c librx.dylib
+example3: example3.c $(LIB)
 	$(CC) $(CFLAGS) $^ -o $@
 
-example4: example4.c librx.dylib
+example4: example4.c $(LIB)
 	$(CC) $(CFLAGS) $^ -o $@
 
-example5: example5.c librx.dylib
+example5: example5.c $(LIB)
 	$(CC) $(CFLAGS) $^ -o $@
 
 check: testsuite
 	./testsuite
 
-install: librx.dylib rx.h
+install: $(LIB) rx.h
 	mkdir -p $(PREFIX)/lib $(PREFIX)/include
-	install -c librx.dylib $(PREFIX)/lib
+	install -c $(LIB) $(PREFIX)/lib
 	install -c rx.h $(PREFIX)/include
 
 uninstall:
-	rm $(PREFIX)/lib/librx.dylib $(PREFIX)/lib/rx.h
+	rm $(PREFIX)/lib/$(LIB) $(PREFIX)/lib/rx.h
 
 clean:
-	rm -rf a.out *.dSYM librx.dylib testsuite example[0-9]
+	rm -rf a.out *.dSYM $(LIB) testsuite example[0-9]
 

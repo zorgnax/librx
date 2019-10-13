@@ -1366,5 +1366,3 @@ void rx_matcher_free (matcher_t *m) {
     free(m);
 }
 
-// TODO port to linux
-
