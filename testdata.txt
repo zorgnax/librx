@@ -1,4 +1,4 @@
-# Run ./test to run these tests. See test.c for a description of this file format.
+# Run ./test to run these tests. See testsuite.c for a description of this file format.
 
 "[^"]*"
     Have "you seen the" Muffin man.

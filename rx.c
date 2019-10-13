@@ -1369,7 +1369,6 @@ void rx_matcher_free (matcher_t *m) {
     free(m);
 }
 
-// TODO a program that counts the number of lines of top level blocks in a file
 // TODO a recursive grep program
 // TODO synopsis and code examples in README
 // TODO output from rx_print in README

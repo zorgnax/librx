@@ -63,6 +63,8 @@ int got_count;
 int got_allocated;
 urstr_t *got;
 
+#define eq(a, b) (strcmp(a, b) == 0)
+
 int read_file (char *file, char **data2) {
     int fd = open(file, O_RDONLY);
     if (fd < 0) {
@@ -445,31 +447,19 @@ void run_test () {
 
 void usage () {
     char str[] =
-        "Usage: ./test [-h]\n"
-        "    -h          help text\n"
+        "This program runs the testsuite against librx.\n"
         "\n"
-        "This program runs the testsuite against librx.\n";
+        "Usage: ./test [-h]\n"
+        "\n"
+        "Options:\n"
+        "    -h          help text";
     puts(str);
     exit(0);
 }
 
-void get_opts (int argc, char **argv) {
-    for (int i = 1; i < argc; i += 1) {
-        char *arg = argv[i];
-        if (strcmp(arg, "-h") == 0 || strcmp(arg, "--help") == 0 || strcmp(arg, "-help") == 0 || strcmp(arg, "-?") == 0) {
-            usage();
-        } else {
-            printf("Unrecognized option \"%s\"\n", arg);
-            exit(1);
-        }
-    }
-}
-
-int main (int argc, char **argv) {
-    get_opts(argc, argv);
-
+void process_file (char *file) {
     char *data;
-    int data_size = read_file("testdata.txt", &data);
+    int data_size = read_file(file, &data);
 
     test_string = malloc(sizeof(urstr_t));
     test_rx = rx_alloc();
@@ -504,13 +494,20 @@ int main (int argc, char **argv) {
 
         char *test_regexp = m->cap_str[1];
         int test_regexp_size = m->cap_size[1];
+
+        // printf("regexp is [%.*s]\n", test_regexp_size, test_regexp);
+
         char *content = m->cap_str[2];
         int content_size = m->cap_size[2];
+
+        // printf("content is [%.*s]\n", content_size, content);
+
         pos = m->cap_end[2];
 
         rx_init(test_rx, test_regexp_size, test_regexp);
         if (test_rx->error) {
             test_count += 1;
+            failed_tests += 1;
             printf("not ok %d - %.*s\n", test_count, test_regexp_size, test_regexp);
             printf("    %s\n\n", test_rx->errorstr);
             continue;
@@ -533,12 +530,44 @@ int main (int argc, char **argv) {
             run_test();
         }
     }
+}
+
+int main (int argc, char **argv) {
+    char *files[argc];
+    int file_count = 0;
+
+    for (int i = 1; i < argc; i += 1) {
+        if (eq(argv[i], "-h") || eq(argv[i], "--help") || eq(argv[i], "-help") || eq(argv[i], "-?")) {
+            usage();
+        } else if (eq(argv[i], "--")) {
+            for (i += 1; i < argc; i += 1) {
+                files[file_count] = argv[i];
+                file_count += 1;
+            }
+        } else if (argv[i][0] == '-') {
+            printf("Unrecognized option \"%s\"\n", argv[i]);
+            return 1;
+        } else {
+            files[file_count] = argv[i];
+            file_count += 1;
+        }
+    }
+
+    if (file_count == 0) {
+        files[file_count] = "testdata.txt";
+        file_count += 1;
+    }
+
+    for (int i = 0; i < file_count; i += 1) {
+        process_file(files[i]);
+    }
 
     printf("1..%d\n", test_count);
     if (failed_tests) {
         printf("# Looks like you failed %d test%s of %d run.\n", failed_tests, failed_tests == 1 ? "" : "s", test_count);
         return 1;
     }
+
     return 0;
 }
 
