@@ -1374,4 +1374,5 @@ void rx_matcher_free (matcher_t *m) {
 // TODO synopsis and code examples in README
 // TODO output from rx_print in README
 // TODO output from rx_match_print in README
+// TODO port to linux
 
