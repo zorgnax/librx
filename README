@@ -107,7 +107,188 @@ matter what order they came in.
 Testing
 =======
 
-The library is tested by running the program written in testsuite.c. It reads
-testdata.txt and outputs test results. Read testsuite.c for a description of the
-format of testdata.txt.
+The library is tested by running ./testsuite in the project directory. It reads
+testdata.txt and outputs test results in tap format. Read testsuite.c for a
+description of the format of testdata.txt.
 
+Installation
+============
+
+To install globally on your computer, run:
+
+    make
+    sudo make install
+
+or you can copy rx.h and rx.c into your project and it should work the same.
+
+Examples
+========
+
+There are some examples of how to use the library in example*.c in the project.
+example1.c is a very simple example of how to use it. example5.c is a grep clone.
+
+Synopsis
+========
+
+    // This program will match a regexp against a string.
+
+    #include "rx.h"
+    #include <stdio.h>
+
+    int main () {
+        char regexp[] = "\\d+\\.\\d+\\.\\d+\\.\\d+";
+        char string[] = "There's no place like 127.0.0.1.";
+
+        rx_t *rx = rx_alloc();
+        rx_init(rx, sizeof(regexp) - 1, regexp);
+        if (rx->error) {
+            puts(rx->errorstr);
+            return 1;
+        }
+
+        matcher_t *m = rx_matcher_alloc();
+        rx_match(rx, m, sizeof(string) - 1, string, 0);
+        if (m->success) {
+            printf("%.*s\n", m->cap_size[0], m->cap_str[0]);
+        }
+
+        rx_matcher_free(m);
+        rx_free(rx);
+        return 0;
+    }
+
+Captures
+========
+
+The match object stores capture information in several fields. A capture is a
+region in the regexp surrounded by parentheses. The 0 capture is the entire regexp.
+
+cap_count (int), contains the number of captures found.
+
+cap_start (int []), contains the start position of the capture at a given index.
+
+cap_end (int []), contains the end position of the capture.
+
+cap_defined (char []), contains whether the capture was found.
+
+cap_str (char * []), contains a pointer to the start of the capture.
+
+cap_size (int []), contains the size, in bytes, of the capture.
+
+Recovering Overwritten Captures
+===============================
+
+With a regular expression like this:
+
+    (\w+\.?)*
+
+Matched against a string like this:
+
+    foo.bar.baz
+
+The first capture group would be equal to "baz". But during the course of the match
+it had equaled "foo.", then "bar.", before finally getting it's value of "baz".
+If you wanted to get those values, you still can, by looking at the path array of
+the matcher object. The code would look something similar to this:
+
+    for (int i = 0; i < m->path_count; i += 1) {
+        path_t *p = m->path + i;
+        if (p->node->type == CAPTURE_START) {
+            printf("capture %d start %d\n", p->node->value, p->pos);
+        } else if (p->node->type == CAPTURE_END) {
+            printf("capture %d end %d\n", p->node->value, p->pos);
+        }
+    }
+
+Function Reference
+==================
+
+rx_alloc () -> rx_t *
+---------------------
+
+Allocates a new rx_t object.
+
+rx_matcher_alloc () -> matcher_t *
+----------------------------------
+
+Allocates a new matcher_t object.
+
+rx_init (rx_t *rx, int regexp_size, char *regexp) -> int
+--------------------------------------------------------
+
+Create a new regular expression. Parses the string given in the regexp argument,
+which must be given it's size in regexp_size. Returns 0 on error. rx->error will
+be true, and rx->errorstr will contain a message about what error occurred. Memory
+gained during previous calls to rx_init can be reused, there's no need to call
+rx_free() on an rx before creating another rx object.
+
+rx_match (rx_t *rx, matcher_t *m, int str_size, char *str, int start_pos) -> int
+--------------------------------------------------------------------------------
+
+Match a regexp against a given string. The string's size must be provided in
+str_size. You can start the match at a position other than 0 by using the start_pos
+argument. This is useful for doing global matches. Memory gained during previous
+calls to rx_match, can be reused, there's no need to call rx_matcher_free() between
+using rx_match() again. The matcher object contains info about the match including
+whether it was successful and its capture strings. Returns 1 if it matched, 0
+otherwise.
+
+rx_free (rx_t *rx)
+------------------
+
+Frees the memory in an rx object.
+
+rx_matcher_free (matcher_t *m)
+------------------------------
+
+Frees the memory in a matcher object.
+
+rx_match_print (matcher_t *m)
+-----------------------------
+
+Prints the result of a match.
+
+rx_print (rx_t *rx)
+-------------------
+
+This function will display the regular expression as a graph using the graph-easy
+program. If graph-easy is not installed, calling this will just print an error
+message. The output for a regexp like:
+
+    (\w+\.?)*
+
+Would look like:
+
+                ┌─────┐       ┌────┐
+  ┌───────────▶ │  7  │ ◀──── │ 0B │
+  │             └─────┘       └────┘
+  │               │             :
+  │               │ (1          :
+  │               ▼             ▼
+  │             ┌─────┐       ┌────┐
+  │             │ 1C  │ ─┐    │ 8E │
+  │             └─────┘  │    └────┘
+  │               ▲      │      ▲
+  │               │      │ ⧹w   :
+  │               │      │      :
+  │             ┌─────┐  │      :
+  │             │ 2B  │ ◀┘      :
+  │             └─────┘         :
+  │               :             :
+  │               :             :
+  │               ▼             :
+  │  ┌───┐      ┌─────┐         :
+  │  │ 5 │ ◀─── │ 3B  │         :
+  │  └───┘      └─────┘         :
+  │    │          :             :
+  │    │          :             :
+  │    │          ▼             :
+  │    │   .    ┌─────┐         :
+  │    └──────▶ │  4  │         :
+  │             └─────┘         :
+  │               │             :
+  │               │ )1          :
+  │               ▼             :
+  │             ┌─────┐         :
+  └──────────── │ 6B  │ ········┘
+                └─────┘

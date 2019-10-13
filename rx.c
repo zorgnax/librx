@@ -114,7 +114,7 @@ void rx_match_print (matcher_t *m) {
     }
 
     for (int i = 0; i < m->path_count; i += 1) {
-        path_t *p = &(m->path[i]);
+        path_t *p = m->path + i;
         if (p->node->type == CAPTURE_START) {
             printf("capture %d start %d\n", p->node->value, p->pos);
         } else if (p->node->type == CAPTURE_END) {
@@ -1366,8 +1366,5 @@ void rx_matcher_free (matcher_t *m) {
     free(m);
 }
 
-// TODO synopsis and code examples in README
-// TODO output from rx_print in README
-// TODO output from rx_match_print in README
 // TODO port to linux
 

@@ -19,14 +19,11 @@ int main (int argc, char **argv) {
         puts(rx->errorstr);
         return 1;
     }
+    rx_print(rx);
 
     matcher_t *m = rx_matcher_alloc();
     rx_match(rx, m, strlen(string), string, 0);
-    if (m->success) {
-        printf("%.*s\n", m->cap_size[0], m->cap_str[0]);
-    } else {
-        printf("no match\n");
-    }
+    rx_match_print(m);
 
     rx_matcher_free(m);
     rx_free(rx);

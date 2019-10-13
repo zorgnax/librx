@@ -1,5 +1,10 @@
 # Run ./test to run these tests. See testsuite.c for a description of this file format.
 
+[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+)*
+    example.com
+    sub.example.com
+    sub.sub.example.com
+
 "[^"]*"
     Have "you seen the" Muffin man.
     0: "you seen the"
