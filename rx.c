@@ -1068,7 +1068,8 @@ int rx_match (rx_t *rx, matcher_t *m, int str_size, char *str, int start_pos) {
     while (1) {
         retry:
 
-        if (node->type == CHAR) {
+        switch (node->type) {
+        case CHAR:
             if (pos >= str_size) {
                 goto try_alternative;
             }
@@ -1082,8 +1083,9 @@ int rx_match (rx_t *rx, matcher_t *m, int str_size, char *str, int start_pos) {
                 pos += 1;
                 continue;
             }
+            break;
 
-        } else if (node->type == MATCH_END) {
+        case MATCH_END:
             // End node found!
             // Match cap count is one more than rx cap count since it counts the
             // entire match as the 0 capture.
@@ -1123,108 +1125,124 @@ int rx_match (rx_t *rx, matcher_t *m, int str_size, char *str, int start_pos) {
             }
             m->success = 1;
             return 1;
+            break;
 
-        } else if (node->type == BRANCH || node->type == CAPTURE_START || node->type == CAPTURE_END) {
-            if (m->path_count == m->path_allocated) {
-                m->path_allocated *= 2;
-                m->path = realloc(m->path, m->path_allocated * sizeof(path_t));
-            }
-            path_t *p = &m->path[m->path_count];
-            p->pos = pos;
-            p->node = node;
-            m->path_count += 1;
-            node = node->next;
-            continue;
-        } else if (node->type == GROUP_START || node->type == GROUP_END) {
-            node = node->next;
-            continue;
-
-        } else if (node->type == QUANTIFIER) {
-            if (m->path_count == m->path_allocated) {
-                m->path_allocated *= 2;
-                m->path = realloc(m->path, m->path_allocated * sizeof(path_t));
-            }
-            path_t *p = &m->path[m->path_count];
-            p->pos = pos;
-            p->node = node;
-            p->visit = 0;
-            m->path_count += 1;
-            quantifier_t *qval = (quantifier_t *) (rx->data + node->qval_offset);
-            if (qval->greedy) {
-                node = qval->next;
-                p->visit = 1;
-            } else if (qval->min) {
-                node = qval->next;
-                p->visit = 1;
-            }
-            else {
+        case BRANCH:
+        case CAPTURE_START:
+        case CAPTURE_END:
+            {
+                if (m->path_count == m->path_allocated) {
+                    m->path_allocated *= 2;
+                    m->path = realloc(m->path, m->path_allocated * sizeof(path_t));
+                }
+                path_t *p = m->path + m->path_count;
+                p->pos = pos;
+                p->node = node;
+                m->path_count += 1;
                 node = node->next;
+                continue;
             }
+            break;
+
+        case GROUP_START:
+        case GROUP_END:
+            node = node->next;
             continue;
+            break;
 
-        } else if (node->type == SUBGRAPH_END) {
-            // End of a quantified branch
-            path_t *p = NULL;
-            for (int i = m->path_count - 1; i >= 0; i--) {
-                path_t *p2 = &m->path[i];
-                if (p2->node == node->next2) {
-                    p = p2;
-                    break;
+        case QUANTIFIER:
+            {
+                if (m->path_count == m->path_allocated) {
+                    m->path_allocated *= 2;
+                    m->path = realloc(m->path, m->path_allocated * sizeof(path_t));
                 }
-            }
-            if (!p) {
-                goto try_alternative; // This should never happen
-            }
-
-            // I *think* I got this correct, it's hard to understand the state of
-            // the graph when returning from subgraph under greedy/nongreedy, and to
-            // be sure to save captures, etc.
-            quantifier_t *qval = (quantifier_t *) (rx->data + p->node->qval_offset);
-            if (qval->greedy) {
-                if (p->visit == qval->max) {
-                    node = p->node->next;
-                } else if (p->visit < qval->min) {
+                path_t *p = m->path + m->path_count;
+                p->pos = pos;
+                p->node = node;
+                p->visit = 0;
+                m->path_count += 1;
+                quantifier_t *qval = (quantifier_t *) (rx->data + node->qval_offset);
+                if (qval->greedy) {
                     node = qval->next;
-                    p->visit += 1;
-                } else {
-                    if (m->path_count == m->path_allocated) {
-                        m->path_allocated *= 2;
-                        m->path = realloc(m->path, m->path_allocated * sizeof(path_t));
+                    p->visit = 1;
+                } else if (qval->min) {
+                    node = qval->next;
+                    p->visit = 1;
+                }
+                else {
+                    node = node->next;
+                }
+                continue;
+            }
+            break;
+
+        case SUBGRAPH_END:
+            {
+                // End of a quantified branch
+                path_t *p = NULL;
+                for (int i = m->path_count - 1; i >= 0; i--) {
+                    path_t *p2 = &m->path[i];
+                    if (p2->node == node->next2) {
+                        p = p2;
+                        break;
                     }
-                    path_t *p2 = &m->path[m->path_count];
-                    p2->pos = pos;
-                    p2->node = p->node;
-                    p2->visit = p->visit + 1;
-                    m->path_count += 1;
-                    node = qval->next;
                 }
-            }
-            else {
-                if (p->visit < qval->min) {
-                    node = qval->next;
-                    p->visit += 1;
-                } else {
-                    if (m->path_count == m->path_allocated) {
-                        m->path_allocated *= 2;
-                        m->path = realloc(m->path, m->path_allocated * sizeof(path_t));
-                    }
-                    path_t *p2 = &m->path[m->path_count];
-                    p2->pos = pos;
-                    p2->node = p->node;
-                    p2->visit = p->visit;
-                    m->path_count += 1;
-                    node = p->node->next;
+                if (!p) {
+                    goto try_alternative; // This should never happen
                 }
-            }
-            continue;
 
-        } else if (node->type == ASSERTION) {
+                // I *think* I got this correct, it's hard to understand the state of
+                // the graph when returning from subgraph under greedy/nongreedy, and to
+                // be sure to save captures, etc.
+                quantifier_t *qval = (quantifier_t *) (rx->data + p->node->qval_offset);
+                if (qval->greedy) {
+                    if (p->visit == qval->max) {
+                        node = p->node->next;
+                    } else if (p->visit < qval->min) {
+                        node = qval->next;
+                        p->visit += 1;
+                    } else {
+                        if (m->path_count == m->path_allocated) {
+                            m->path_allocated *= 2;
+                            m->path = realloc(m->path, m->path_allocated * sizeof(path_t));
+                        }
+                        path_t *p2 = &m->path[m->path_count];
+                        p2->pos = pos;
+                        p2->node = p->node;
+                        p2->visit = p->visit + 1;
+                        m->path_count += 1;
+                        node = qval->next;
+                    }
+                }
+                else {
+                    if (p->visit < qval->min) {
+                        node = qval->next;
+                        p->visit += 1;
+                    } else {
+                        if (m->path_count == m->path_allocated) {
+                            m->path_allocated *= 2;
+                            m->path = realloc(m->path, m->path_allocated * sizeof(path_t));
+                        }
+                        path_t *p2 = &m->path[m->path_count];
+                        p2->pos = pos;
+                        p2->node = p->node;
+                        p2->visit = p->visit;
+                        m->path_count += 1;
+                        node = p->node->next;
+                    }
+                }
+                continue;
+            }
+            break;
+
+        case ASSERTION:
             if (rx_match_assertion(node->value, start_pos, str_size, str, pos)) {
                 node = node->next;
                 continue;
             }
+            break;
 
-        } else if (node->type == CHAR_CLASS) {
+        case CHAR_CLASS:
             if (pos >= str_size) {
                 goto try_alternative;
             }
@@ -1249,8 +1267,9 @@ int rx_match (rx_t *rx, matcher_t *m, int str_size, char *str, int start_pos) {
                     }
                 }
             }
+            break;
 
-        } else if (node->type == CHAR_SET) {
+        case CHAR_SET:
             if (pos >= str_size) {
                 goto try_alternative;
             }
@@ -1303,10 +1322,12 @@ int rx_match (rx_t *rx, matcher_t *m, int str_size, char *str, int start_pos) {
                     continue;
                 }
             }
+            break;
 
-        } else if (node->type == EMPTY) {
+        case EMPTY:
             node = node->next;
             continue;
+            break;
         }
 
         try_alternative:
