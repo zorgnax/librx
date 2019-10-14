@@ -1240,6 +1240,10 @@ int rx_match (rx_t *rx, matcher_t *m, int str_size, char *str, int start_pos) {
                 node = node->next;
                 continue;
             }
+            // Do not try an alternative if it was a SOS or SOP assertion that failed
+            if (rx->start->value == ASSERT_SOS || rx->start->value == ASSERT_SOP) {
+                goto out;
+            }
             break;
 
         case CHAR_CLASS:
@@ -1360,10 +1364,6 @@ int rx_match (rx_t *rx, matcher_t *m, int str_size, char *str, int start_pos) {
         }
 
         // Try another start position
-        // TODO this can move elsewhere for speed
-        if (rx->start->type == ASSERTION && (rx->start->value == ASSERT_SOS || rx->start->value == ASSERT_SOP)) {
-            break;
-        }
         if (start_pos == str_size) {
             break;
         }
@@ -1372,6 +1372,7 @@ int rx_match (rx_t *rx, matcher_t *m, int str_size, char *str, int start_pos) {
         pos = start_pos;
         node = rx->start;
     }
+    out:
     return 0;
 }
 
