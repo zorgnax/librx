@@ -41,7 +41,7 @@ void usage () {
 
 void read_file (int fd) {
     data_size = 0;
-    int chunk_size = 4096;
+    int chunk_size = 16384;
     if (data_allocated == 0) {
         data_allocated = 2 * chunk_size;
         data = malloc(data_allocated);
@@ -266,6 +266,7 @@ void find (int size, char *file) {
             char *file2 = malloc(size2);
             sprintf(file2, "%s/%s", file, de->d_name);
             find(size2, file2);
+            free(file2);
         }
         closedir(dp);
     } else {

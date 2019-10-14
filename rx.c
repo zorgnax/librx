@@ -536,6 +536,14 @@ rx_t *rx_alloc () {
 
 matcher_t *rx_matcher_alloc () {
     matcher_t *m = calloc(1, sizeof(matcher_t));
+    m->path_allocated = 10;
+    m->path = malloc(m->path_allocated * sizeof(path_t));
+    m->cap_allocated = 10;
+    m->cap_start = realloc(m->cap_start, m->cap_allocated * sizeof(int));
+    m->cap_end = realloc(m->cap_end, m->cap_allocated * sizeof(int));
+    m->cap_defined = realloc(m->cap_defined, m->cap_allocated * sizeof(char));
+    m->cap_str = realloc(m->cap_str, m->cap_allocated * sizeof(char *));
+    m->cap_size = realloc(m->cap_size, m->cap_allocated * sizeof(int));
     return m;
 }
 
@@ -910,18 +918,12 @@ int rx_match (rx_t *rx, matcher_t *m, int str_size, char *str, int start_pos) {
     m->rx = rx;
     m->success = 0;
     m->path_count = 0;
-    if (rx->error) {
-        return 0;
-    }
     node_t *node = rx->start;
     int pos = start_pos;
-    if (m->path_allocated == 0) {
-        m->path_allocated = 10;
-        m->path = malloc(m->path_allocated * sizeof(path_t));
-    }
     unsigned char c;
     unsigned char retry_buf[4];
     int retry_ignorecase;
+
     while (1) {
         retry_ignorecase = 0;
         retry:
@@ -937,7 +939,17 @@ int rx_match (rx_t *rx, matcher_t *m, int str_size, char *str, int start_pos) {
             }
         }
 
-        if (node->type == MATCH_END) {
+        if (node->type == CHAR) {
+            if (pos >= str_size) {
+                goto try_alternative;
+            }
+            if (c == node->value) {
+                node = node->next;
+                pos += 1;
+                continue;
+            }
+
+        } else if (node->type == MATCH_END) {
             // End node found!
             // Match cap count is one more than rx cap count since it counts the
             // entire match as the 0 capture.
@@ -977,16 +989,6 @@ int rx_match (rx_t *rx, matcher_t *m, int str_size, char *str, int start_pos) {
             }
             m->success = 1;
             return 1;
-
-        } else if (node->type == CHAR) {
-            if (pos >= str_size) {
-                goto try_alternative;
-            }
-            if (c == node->value) {
-                node = node->next;
-                pos += 1;
-                continue;
-            }
 
         } else if (node->type == BRANCH || node->type == CAPTURE_START || node->type == CAPTURE_END) {
             if (m->path_count == m->path_allocated) {
@@ -1333,6 +1335,7 @@ int rx_match (rx_t *rx, matcher_t *m, int str_size, char *str, int start_pos) {
         }
 
         // Try another start position
+        // TODO this can move elsewhere for speed
         if (rx->start->type == ASSERTION && (rx->start->value == ASSERT_SOS || rx->start->value == ASSERT_SOP)) {
             break;
         }
