@@ -905,6 +905,152 @@ int rx_init (rx_t *rx, int regexp_size, char *regexp) {
     return 1;
 }
 
+static inline int flip_case (unsigned char *c) {
+    if (*c >= 'a' && *c <= 'z') {
+        *c -= 'a' - 'A';
+        return 1;
+    } else if (*c >= 'A' && *c <= 'Z') {
+        *c += 'a' - 'A';
+        return 1;
+    }
+    else {
+        return 0;
+    }
+}
+
+static inline int rx_match_char_class (rx_t *rx, char_class_t *ccval, int test_size, char *test) {
+    int matched = 0;
+
+    // Check the individual values
+    char *value = rx->data + ccval->value_offset;
+    for (int i = 0; i < ccval->value_count;) {
+        int char1_size = rx_utf8_char_size(ccval->value_count, value, i);
+        char *char1 = value + i;
+        if (test_size == char1_size && strncmp(test, char1, test_size) == 0) {
+            matched = 1;
+            goto out;
+        }
+        i += char1_size;
+    }
+
+    // Check the character ranges
+    char *range = rx->data + ccval->range_offset;
+    for (int i = 0; i < ccval->range_count;) {
+        int char1_size = rx_utf8_char_size(ccval->range_count, range, i);
+        char *char1 = range + i;
+        i += char1_size;
+        int char2_size = rx_utf8_char_size(ccval->range_count, range, i);
+        char *char2 = range + i;
+        i += char2_size;
+
+        int ge = (test_size > char1_size) ||
+                 (test_size == char1_size && strncmp(test, char1, test_size) >= 0);
+
+        int le = (test_size < char2_size) ||
+                 (test_size == char2_size && strncmp(test, char2, test_size) <= 0);
+
+        if (ge && le) {
+            matched = 1;
+            goto out;
+        }
+    }
+
+    // Check the character sets
+    char c = test[0];
+    for (int i = 0; i < ccval->char_set_count; i += 1) {
+        char cs = rx->data[ccval->char_set_offset + i];
+        if (cs == CS_NOTNL) {
+            if (c != '\n') {
+                matched = 1;
+                goto out;
+            }
+        } else if (cs == CS_DIGIT) {
+            if (c >= '0' && c <= '9') {
+                matched = 1;
+                goto out;
+            }
+        } else if (cs == CS_NOTDIGIT) {
+            if (!(c >= '0' && c <= '9')) {
+                matched = 1;
+                goto out;
+            }
+        } else if (cs == CS_WORD) {
+            if ((c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c == '_')) {
+                matched = 1;
+                goto out;
+            }
+        } else if (cs == CS_NOTWORD) {
+            if (!((c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c == '_'))) {
+                matched = 1;
+                goto out;
+            }
+        } else if (cs == CS_SPACE) {
+            if (c == ' ' || c == '\t' || c == '\n' || c == '\r') {
+                matched = 1;
+                goto out;
+            }
+        } else if (cs == CS_NOTSPACE) {
+            if (!(c == ' ' || c == '\t' || c == '\n' || c == '\r')) {
+                matched = 1;
+                goto out;
+            }
+        }
+    }
+
+    out:
+    if (ccval->negated) {
+        return !matched;
+    } else {
+        return matched;
+    }
+}
+
+static inline int rx_match_assertion (int type, int start_pos, int str_size, char *str, int pos) {
+    if (type == ASSERT_SOS) {
+        if (pos == 0) {
+            return 1;
+        }
+    } else if (type == ASSERT_SOL) {
+        if (pos == 0 || str[pos - 1] == '\n') {
+            return 1;
+        }
+    } else if (type == ASSERT_EOS) {
+        if (pos == str_size) {
+            return 1;
+        }
+    } else if (type == ASSERT_EOL) {
+        if (pos == str_size || str[pos] == '\n' || str[pos] == '\r') {
+            return 1;
+        }
+    } else if (type == ASSERT_SOP) {
+        if (pos == start_pos) {
+            return 1;
+        }
+    } else if (type == ASSERT_SOW || type == ASSERT_EOW) {
+        char w1, w2;
+        if (pos == 0) {
+            w1 = 0;
+        } else {
+            char c1 = str[pos - 1];
+            w1 = (c1 >= '0' && c1 <= '9') || (c1 >= 'A' && c1 <= 'Z') || (c1 >= 'a' && c1 <= 'z') || (c1 == '_');
+        }
+
+        if (pos >= str_size) {
+            w2 = 0;
+        } else {
+            char c2 = str[pos];
+            w2 = (c2 >= '0' && c2 <= '9') || (c2 >= 'A' && c2 <= 'Z') || (c2 >= 'a' && c2 <= 'z') || (c2 == '_');
+        }
+
+        if (type == ASSERT_SOW) {
+            return !w1 && w2;
+        } else if (type == ASSERT_EOW) {
+            return w1 && !w2;
+        }
+    }
+    return 0;
+}
+
 // rx_match() will match a regexp against a given string. The strings it finds
 // will be stored in the matcher argument. The start position can be given, but usually
 // it would be 0 for the start of the string. Returns 1 on success and 0 on failure.
@@ -913,37 +1059,25 @@ int rx_init (rx_t *rx, int regexp_size, char *regexp) {
 // memory allocated for previous matches. All the captures are references into the
 // original string.
 int rx_match (rx_t *rx, matcher_t *m, int str_size, char *str, int start_pos) {
-    m->str_size = str_size;
-    m->str = str;
-    m->rx = rx;
     m->success = 0;
     m->path_count = 0;
     node_t *node = rx->start;
     int pos = start_pos;
     unsigned char c;
-    unsigned char retry_buf[4];
-    int retry_ignorecase;
 
     while (1) {
-        retry_ignorecase = 0;
         retry:
-
-        c = (pos < str_size) ? str[pos] : '\0';
-        if (retry_ignorecase) {
-            if (c >= 'a' && c <= 'z') {
-                c -= 'a' - 'A';
-            } else if (c >= 'A' && c <= 'Z') {
-                c += 'a' - 'A';
-            } else {
-                goto try_alternative;
-            }
-        }
 
         if (node->type == CHAR) {
             if (pos >= str_size) {
                 goto try_alternative;
             }
+            c = str[pos];
             if (c == node->value) {
+                node = node->next;
+                pos += 1;
+                continue;
+            } else if (rx->ignorecase && flip_case(&c) && c == node->value) {
                 node = node->next;
                 pos += 1;
                 continue;
@@ -1085,163 +1219,42 @@ int rx_match (rx_t *rx, matcher_t *m, int str_size, char *str, int start_pos) {
             continue;
 
         } else if (node->type == ASSERTION) {
-            if (node->value == ASSERT_SOS) {
-                if (pos == 0) {
-                    node = node->next;
-                    continue;
-                }
-            } else if (node->value == ASSERT_SOL) {
-                if (pos == 0 || str[pos - 1] == '\n') {
-                    node = node->next;
-                    continue;
-                }
-            } else if (node->value == ASSERT_EOS) {
-                if (pos == str_size) {
-                    node = node->next;
-                    continue;
-                }
-            } else if (node->value == ASSERT_EOL) {
-                if (pos == str_size || c == '\n' || c == '\r') {
-                    node = node->next;
-                    continue;
-                }
-            } else if (node->value == ASSERT_SOP) {
-                if (pos == start_pos) {
-                    node = node->next;
-                    continue;
-                }
-            } else if (node->value == ASSERT_SOW) {
-                char c0, w0, w;
-                if (pos == 0) {
-                    w0 = 0;
-                } else {
-                    c0 = str[pos - 1];
-                    w0 = (c0 >= '0' && c0 <= '9') || (c0 >= 'A' && c0 <= 'Z') || (c0 >= 'a' && c0 <= 'z') || (c0 == '_');
-                }
-                w = (c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c == '_');
-                if (!w0 && w) {
-                    node = node->next;
-                    continue;
-                }
-            } else if (node->value == ASSERT_EOW) {
-                char c0, w0, w;
-                if (pos == 0) {
-                    w0 = 0;
-                } else {
-                    c0 = str[pos - 1];
-                    w0 = (c0 >= '0' && c0 <= '9') || (c0 >= 'A' && c0 <= 'Z') || (c0 >= 'a' && c0 <= 'z') || (c0 == '_');
-                }
-                w = (c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c == '_');
-                if (w0 && !w) {
-                    node = node->next;
-                    continue;
-                }
+            if (rx_match_assertion(node->value, start_pos, str_size, str, pos)) {
+                node = node->next;
+                continue;
             }
 
         } else if (node->type == CHAR_CLASS) {
-            int matched = 0;
             if (pos >= str_size) {
                 goto try_alternative;
             }
-
             int test_size = rx_utf8_char_size(str_size, str, pos);
             char *test = str + pos;
-
-            // If retrying because of ignorecase, copy the char to a buffer to
-            // change the case of what's being tested.
-            if (retry_ignorecase) {
-                memcpy(retry_buf, test, test_size);
-                retry_buf[0] = c;
-                test = (char *) retry_buf;
-            }
             char_class_t *ccval = (char_class_t *) (rx->data + node->ccval_offset);
 
-            // Check the individual values
-            char *value = rx->data + ccval->value_offset;
-            for (int i = 0; i < ccval->value_count;) {
-                int char1_size = rx_utf8_char_size(ccval->value_count, value, i);
-                char *char1 = value + i;
-                if (test_size == char1_size && strncmp(test, char1, test_size) == 0) {
-                    matched = 1;
-                    goto char_class_done;
-                }
-                i += char1_size;
-            }
-
-            // Check the character ranges
-            char *range = rx->data + ccval->range_offset;
-            for (int i = 0; i < ccval->range_count;) {
-                int char1_size = rx_utf8_char_size(ccval->range_count, range, i);
-                char *char1 = range + i;
-                i += char1_size;
-                int char2_size = rx_utf8_char_size(ccval->range_count, range, i);
-                char *char2 = range + i;
-                i += char2_size;
-
-                int ge = (test_size > char1_size) ||
-                         (test_size == char1_size && strncmp(test, char1, test_size) >= 0);
-
-                int le = (test_size < char2_size) ||
-                         (test_size == char2_size && strncmp(test, char2, test_size) <= 0);
-
-                if (ge && le) {
-                    matched = 1;
-                    goto char_class_done;
-                }
-            }
-
-            // Check the character sets
-            for (int i = 0; i < ccval->char_set_count; i += 1) {
-                char cs = rx->data[ccval->char_set_offset + i];
-                if (cs == CS_NOTNL) {
-                    if (c != '\n') {
-                        matched = 1;
-                        goto char_class_done;
-                    }
-                } else if (cs == CS_DIGIT) {
-                    if (c >= '0' && c <= '9') {
-                        matched = 1;
-                        goto char_class_done;
-                    }
-                } else if (cs == CS_NOTDIGIT) {
-                    if (!(c >= '0' && c <= '9')) {
-                        matched = 1;
-                        goto char_class_done;
-                    }
-                } else if (cs == CS_WORD) {
-                    if ((c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c == '_')) {
-                        matched = 1;
-                        goto char_class_done;
-                    }
-                } else if (cs == CS_NOTWORD) {
-                    if (!((c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c == '_'))) {
-                        matched = 1;
-                        goto char_class_done;
-                    }
-                } else if (cs == CS_SPACE) {
-                    if (c == ' ' || c == '\t' || c == '\n' || c == '\r') {
-                        matched = 1;
-                        goto char_class_done;
-                    }
-                } else if (cs == CS_NOTSPACE) {
-                    if (!(c == ' ' || c == '\t' || c == '\n' || c == '\r')) {
-                        matched = 1;
-                        goto char_class_done;
-                    }
-                }
-            }
-
-            char_class_done:
-            if ((matched && !ccval->negated) || (!matched && ccval->negated)) {
+            if (rx_match_char_class(rx, ccval, test_size, test)) {
                 pos += test_size;
                 node = node->next;
                 continue;
+            } else if (rx->ignorecase) {
+                // If retrying because of ignorecase, copy the char to a buffer to
+                // change the case of what's being tested.
+                unsigned char retry_buf[4];
+                memcpy(retry_buf, test, test_size);
+                if (flip_case(retry_buf)) {
+                    if (rx_match_char_class(rx, ccval, test_size, (char *) retry_buf)) {
+                        pos += test_size;
+                        node = node->next;
+                        continue;
+                    }
+                }
             }
 
         } else if (node->type == CHAR_SET) {
             if (pos >= str_size) {
                 goto try_alternative;
             }
+            c = str[pos];
             if (node->value == CS_ANY) {
                 pos += 1;
                 node = node->next;
@@ -1297,15 +1310,6 @@ int rx_match (rx_t *rx, matcher_t *m, int str_size, char *str, int start_pos) {
         }
 
         try_alternative:
-        if (rx->ignorecase) {
-            if (retry_ignorecase) {
-                retry_ignorecase = 0;
-            }
-            else {
-                retry_ignorecase = 1;
-                goto retry;
-            }
-        }
 
         for (int i = m->path_count - 1; i >= 0; i--) {
             path_t *p = &m->path[i];
@@ -1368,4 +1372,6 @@ void rx_matcher_free (matcher_t *m) {
     free(m->cap_size);
     free(m);
 }
+
+// TODO maybe duplicate subgraphs for quantifier instead of maintaining state in path array
 

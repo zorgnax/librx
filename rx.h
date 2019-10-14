@@ -98,9 +98,6 @@ typedef struct {
 // The matcher maintains a list of positions that are important for backtracking
 // and for remembering captures.
 typedef struct {
-    int str_size;
-    char *str;
-    rx_t *rx;
     int path_count;
     int path_allocated;
     path_t *path;

@@ -99,7 +99,7 @@ void show_pre_text (int end, int start) {
 int show_post_text (int end) {
     int i;
     for (i = end; i < data_size; i += 1) {
-        if (data[i] == '\n') {
+        if (data[i] == '\n' || data[i] == '\r') {
             break;
         }
     }

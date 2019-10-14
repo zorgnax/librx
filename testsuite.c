@@ -295,7 +295,7 @@ void fill_got_array (matcher_t *m) {
     }
 }
 
-void fill_expected_array (matcher_t *m) {
+void fill_expected_array (matcher_t *m, char *str) {
     expected_count = 0;
 
     int en_start = 0, en_end = 0, es_start = 0, es_end = 0;
@@ -305,7 +305,7 @@ void fill_expected_array (matcher_t *m) {
             en_start = p->pos;
         } else if (p->node->type == CAPTURE_END && p->node->value == 5) {
             en_end = p->pos;
-            char *en = m->str + en_start;
+            char *en = str + en_start;
             int en_size = en_end - en_start;
             int en_value = atoi(en);
             if (en_value + 1 > expected_count) {
@@ -346,9 +346,9 @@ void fill_expected_array (matcher_t *m) {
             es_start = p->pos;
         } else if (p->node->type == CAPTURE_END && p->node->value == 6) {
             es_end = p->pos;
-            char *en = m->str + en_start;
+            char *en = str + en_start;
             int en_size = en_end - en_start;
-            char *es = m->str + es_start;
+            char *es = str + es_start;
             int es_size = es_end - es_start;
             int en_value = atoi(en);
             urstr_t *s = expected + en_value;
@@ -526,7 +526,7 @@ void process_file (char *file) {
             test_string->size = m->cap_size[1];
             unescape(test_string);
 
-            fill_expected_array(m);
+            fill_expected_array(m, content);
 
             run_test();
         }

@@ -27,14 +27,14 @@ int read_file (char *file, char **data2) {
     int fd = open(file, O_RDONLY);
     if (fd < 0) {
         fprintf(stderr, "Can't open %s: %s\n", file, strerror(errno));
-        exit(1);
+        return 0;
     }
 
     struct stat stat;
     int retval = fstat(fd, &stat);
     if (retval < 0) {
         fprintf(stderr, "Can't stat file: %s\n", strerror(errno));
-        exit(1);
+        return 0;
     }
 
     int file_size = stat.st_size;
@@ -105,31 +105,30 @@ void process_file (char *file) {
 }
 
 int main (int argc, char **argv) {
-    char *files[argc];
-    int file_count = 0;
-    
-    for (int i = 1; i < argc; i += 1) {
+    int i, j;
+    for (i = 1, j = 1; i < argc; i += 1) {
         if (eq(argv[i], "-h")) {
             usage();
         } else if (eq(argv[i], "--")) {
             for (i += 1; i < argc; i += 1) {
-                files[file_count] = argv[i];
-                file_count += 1;
+                argv[j] = argv[i];
+                j += 1;
             }
         } else if (argv[i][0] == '-') {
             printf("Unrecognized option \"%s\".\n", argv[i]);
             return 1;
         } else {
-            files[file_count] = argv[i];
-            file_count += 1;
+            argv[j] = argv[i];
+            j += 1;
         }
     }
+    argc = j;
 
-    if (file_count < 1) {
+    if (argc < 2) {
         usage();
     }
-    for (int i = 0; i < file_count; i += 1) {
-        process_file(files[i]);
+    for (i = 1; i < argc; i += 1) {
+        process_file(argv[i]);
     }
 
     return 0;
