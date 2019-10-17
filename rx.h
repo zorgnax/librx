@@ -3,7 +3,7 @@
 
 enum {
     EMPTY,
-    CHAR,
+    TAKE,
     BRANCH,
     CAPTURE_START,
     CAPTURE_END,

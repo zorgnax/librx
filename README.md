@@ -294,3 +294,23 @@ Would look like:
       │             ┌─────┐         :
       └──────────── │ 6B  │ ········┘
                     └─────┘
+
+Installation
+============
+
+On MacOS and Linux
+
+    make
+    make check
+    sudo make install
+
+On Windows, you must first install GNU Make, and find vcvars32.bat usually distributed with visual studio and run it. The you can run this:
+
+    make -f Makefile.win
+    make -f Makefile.win check
+    make -f Makefile.win install
+
+If you want to use the rx_print() function, which outputs utf-8 characters, you need to set cmd.exe to display utf-8 by running:
+
+    chcp 65001
+

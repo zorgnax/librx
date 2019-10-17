@@ -1,0 +1,14 @@
+LIBRARY LIBRX
+EXPORTS
+    rx_init @1
+    rx_alloc @2
+    rx_matcher_alloc @3
+    rx_match @4
+    rx_matcher_free @5
+    rx_free @6
+    rx_print @7
+    rx_match_print @8
+    rx_hex_to_int @9
+    rx_int_to_utf8 @10
+    rx_utf8_char_size @11
+

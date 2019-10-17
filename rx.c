@@ -131,7 +131,7 @@ void rx_print (rx_t *rx) {
         int i1 = rx_node_index(rx, n);
         int i2 = rx_node_index(rx, n->next);
 
-        if (n->type == CHAR) {
+        if (n->type == TAKE) {
             char label[6];
             if (n->value == '\x1b') {
                 strcpy(label, "\u29f9e");
@@ -421,7 +421,7 @@ int rx_internal_alloc (rx_t *rx, int size) {
 int rx_char_class_init (rx_t *rx, int pos, int *pos2, int *ccval_offset) {
     char *regexp = rx->regexp;
     int regexp_size = rx->regexp_size;
-    char_class_t ccval = {};
+    char_class_t ccval = {0};
     ccval.str = regexp + pos;
 
     if (pos + 1 >= regexp_size) {
@@ -768,7 +768,7 @@ int rx_init (rx_t *rx, int regexp_size, char *regexp) {
                 rx->ignorecase = 1;
             } else if (c2 == 'e' || c2 == 'r' || c2 == 'n' || c2 == 't') {
                 node_t *node2 = rx_node_create(rx);
-                node->type = CHAR;
+                node->type = TAKE;
                 node->next = node2;
                 node->value = c2 == 'e' ? '\x1b'
                             : c2 == 'r' ? '\r'
@@ -800,7 +800,7 @@ int rx_init (rx_t *rx, int regexp_size, char *regexp) {
                 }
                 pos += 2;
                 node_t *node2 = rx_node_create(rx);
-                node->type = CHAR;
+                node->type = TAKE;
                 node->next = node2;
                 node->value = i;
                 atom_start = node;
@@ -823,7 +823,7 @@ int rx_init (rx_t *rx, int regexp_size, char *regexp) {
                 atom_start = node;
                 for (i = 0; i < str_size; i += 1) {
                     node_t *node2 = rx_node_create(rx);
-                    node->type = CHAR;
+                    node->type = TAKE;
                     node->next = node2;
                     node->value = str[i];
                     node = node2;
@@ -832,7 +832,7 @@ int rx_init (rx_t *rx, int regexp_size, char *regexp) {
             } else {
                 // Unrecognized backslash escape will match itself, for example \\ \* \+ \?
                 node_t *node2 = rx_node_create(rx);
-                node->type = CHAR;
+                node->type = TAKE;
                 node->next = node2;
                 node->value = c2;
                 atom_start = node;
@@ -886,7 +886,7 @@ int rx_init (rx_t *rx, int regexp_size, char *regexp) {
 
         } else {
             node_t *node2 = rx_node_create(rx);
-            node->type = CHAR;
+            node->type = TAKE;
             node->next = node2;
             node->value = c;
             atom_start = node;
@@ -905,7 +905,7 @@ int rx_init (rx_t *rx, int regexp_size, char *regexp) {
     return 1;
 }
 
-static inline int flip_case (unsigned char *c) {
+static int flip_case (unsigned char *c) {
     if (*c >= 'a' && *c <= 'z') {
         *c -= 'a' - 'A';
         return 1;
@@ -918,7 +918,7 @@ static inline int flip_case (unsigned char *c) {
     }
 }
 
-static inline int rx_match_char_class (rx_t *rx, char_class_t *ccval, int test_size, char *test) {
+static int rx_match_char_class (rx_t *rx, char_class_t *ccval, int test_size, char *test) {
     int matched = 0;
 
     // Check the individual values
@@ -1005,7 +1005,7 @@ static inline int rx_match_char_class (rx_t *rx, char_class_t *ccval, int test_s
     }
 }
 
-static inline int rx_match_assertion (int type, int start_pos, int str_size, char *str, int pos) {
+static int rx_match_assertion (int type, int start_pos, int str_size, char *str, int pos) {
     if (type == ASSERT_SOS) {
         if (pos == 0) {
             return 1;
@@ -1069,7 +1069,7 @@ int rx_match (rx_t *rx, matcher_t *m, int str_size, char *str, int start_pos) {
         retry:
 
         switch (node->type) {
-        case CHAR:
+        case TAKE:
             if (pos >= str_size) {
                 goto try_alternative;
             }

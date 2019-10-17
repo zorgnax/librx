@@ -5,11 +5,16 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
-#include <unistd.h>
 #include <fcntl.h>
 #include <errno.h>
 #include <sys/stat.h>
-#include <dirent.h>
+
+#ifdef _WIN32
+    #include <windows.h>
+#else
+    #include <unistd.h>
+    #include <dirent.h>
+#endif
 
 rx_t *rx;
 matcher_t *m;
@@ -103,7 +108,7 @@ int show_post_text (int end) {
             break;
         }
     }
-    if (i > end) {
+    if (i >= end) {
         printf("%.*s\n", i - end, data + end);
     }
     return i + 1;
@@ -207,7 +212,7 @@ void process_file (int fd, char *file) {
             if (match_count > 0) {
                 printf("\n");
             }
-            printf("\e[1;32m%s\e[0m\n", file);
+            printf("\x1b[1;32m%s\x1b[0m\n", file);
         }
         int start = m->cap_start[0];
         find_line(start);
@@ -221,11 +226,11 @@ void process_file (int fd, char *file) {
             if (before) {
                 show_before_context(start, end, old_line);
             }
-            printf("\e[1;33m%d\e[0m: ", line);
+            printf("\x1b[1;33m%d\x1b[0m: ", line);
         }
         show_pre_text(end, start);
-        // The \e[0K makes it color nicely when the match contains a newline
-        printf("\e[103m\e[1;30m%.*s\e[0m\e[0K", m->cap_size[0], m->cap_str[0]);
+        // The \x1b[0K makes it color nicely when the match contains a newline
+        printf("\x1b[103m\x1b[30m%.*s\x1b[0m\x1b[0K", m->cap_size[0], m->cap_str[0]);
         end = m->cap_end[0];
         find_line(end);
         old_line = line;
@@ -241,14 +246,8 @@ void process_file (int fd, char *file) {
 }
 
 void find (int size, char *file) {
-    int fd = open(file, O_RDONLY);
-    if (fd < 0) {
-        fprintf(stderr, "Can't open %s: %s\n", file, strerror(errno));
-        return;
-    }
-
     struct stat st;
-    int retval = fstat(fd, &st);
+    int retval = stat(file, &st);
     if (retval < 0) {
         fprintf(stderr, "Can't stat file: %s\n", strerror(errno));
         return;
@@ -256,7 +255,24 @@ void find (int size, char *file) {
 
     if ((st.st_mode & S_IFMT) == S_IFDIR) {
         // recurse
-        DIR *dp = fdopendir(fd);
+#ifdef _WIN32
+        WIN32_FIND_DATA fd;
+        char file2[MAX_PATH];
+        _snprintf(file2, MAX_PATH, "%s\\*", file);
+        HANDLE h = FindFirstFile(file2, &fd);
+        if (h == INVALID_HANDLE_VALUE) {
+            fprintf(stderr, "FindFirstFile %s\n", file2);
+        }
+        do {
+            if (eq(fd.cFileName, ".") || eq(fd.cFileName, "..")) {
+                continue;
+            }
+            int size2 = _snprintf(file2, MAX_PATH, "%s\\%s", file, fd.cFileName);
+            find(size2, file2);
+        } while (FindNextFile(h, &fd));
+        FindClose(h);
+#else
+        DIR *dp = opendir(file);
         struct dirent *de;
         while ((de = readdir(dp))) {
             if (eq(de->d_name, ".") || eq(de->d_name, "..")) {
@@ -269,16 +285,39 @@ void find (int size, char *file) {
             free(file2);
         }
         closedir(dp);
+#endif
     } else {
+        int fd = open(file, O_RDONLY);
+        if (fd < 0) {
+            fprintf(stderr, "Can't open %s: %s\n", file, strerror(errno));
+            return;
+        }
         process_file(fd, file);
+        close(fd);
     }
-
-    close(fd);
 }
 
 int main (int argc, char **argv) {
-    char *argv2[argc];
-    int argc2 = 0;
+    // This part will enable ansi escape sequences on windows
+    #ifdef _WIN32
+    HANDLE out = GetStdHandle(STD_OUTPUT_HANDLE);
+    if (out == INVALID_HANDLE_VALUE) {
+        return 1;
+    }
+
+    DWORD mode = 0;
+    if (!GetConsoleMode(out, &mode)) {
+        return 1;
+    }
+
+    #define ENABLE_VIRTUAL_TERMINAL_PROCESSING 0x0004
+    mode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+    if (!SetConsoleMode(out, mode)) {
+        return 1;
+    }
+    #endif
+
+    int argc2 = 1;
 
     for (int i = 1; i < argc; i += 1) {
         if (eq(argv[i], "-h")) {
@@ -303,23 +342,23 @@ int main (int argc, char **argv) {
             i += 1;
         } else if (eq(argv[i], "--")) {
             for (i += 1; i < argc; i += 1) {
-                argv2[argc2] = argv[i];
+                argv[argc2] = argv[i];
                 argc2 += 1;
             }
         } else if (argv[i][0] == '-') {
             printf("Unrecognized option \"%s\".\n", argv[i]);
             return 1;
         } else {
-            argv2[argc2] = argv[i];
+            argv[argc2] = argv[i];
             argc2 += 1;
         }
     }
 
-    if (argc2 == 0) {
+    if (argc2 == 1) {
         printf("A regexp is required.\n");
         return 1;
     }
-    char *regexp = argv2[0];
+    char *regexp = argv[1];
     rx = rx_alloc();
     rx_init(rx, strlen(regexp), regexp);
     if (rx->error) {
@@ -330,13 +369,13 @@ int main (int argc, char **argv) {
 
     if (!isatty(0)) {
         process_file(0, "stdin");
-    } else if (argc2 == 1) {
-        argv2[argc2] = ".";
+    } else if (argc2 == 2) {
+        argv[argc2] = ".";
         argc2 += 1;
     }
 
-    for (int i = 1; i < argc2; i += 1) {
-        char *file = argv2[i];
+    for (int i = 2; i < argc2; i += 1) {
+        char *file = argv[i];
         int size = strlen(file);
         find(size, file);
     }

@@ -2,7 +2,7 @@
 // for regular expressions and strings to run those regular expressions against and
 // check if the result is the expected result. The output is in tap format. The input
 // format is something like this:
-// 
+//
 // # comment
 // regexp
 //     string
@@ -10,9 +10,9 @@
 //     string
 //     0: expected
 //     1: expected
-// 
+//
 // Comments must appear on a line by themselves.
-// 
+//
 // Regexps must start on the leftmost part of the line. Strings and expected strings
 // must be indented. If the regexp is supposed to start with whitespece, backslash
 // the whitespace, it will mean the same thing. If the regexp starts with a #,
@@ -22,15 +22,15 @@
 // you have to use \n. The other backslash escapes are available too, including \x12,
 // \u1234, \U12341234, \r, \t, and \e. Anything else that is backslashed will convert
 // to itself.
-// 
+//
 // If an expected string is ~ that means it is not a match. If your expected string
 // is actually just a ~, you need to backslash the ~.
-// 
+//
 // The expected string starts with a digit colon, like "1: expected", it will match
 // capture 1. If it starts "0: expected", it will be the whole match. If you want to
 // match an empty string for the entire match, use "0: ", empty is different from a
 // non-match ~.
-// 
+//
 
 #include "rx.h"
 #include <stdio.h>
@@ -39,7 +39,12 @@
 #include <string.h>
 #include <errno.h>
 #include <sys/stat.h>
-#include <unistd.h>
+
+#ifdef _WIN32
+    #include <windows.h>
+#else
+    #include <unistd.h>
+#endif
 
 int test_count = 0;
 int failed_tests = 0;
@@ -93,7 +98,7 @@ int read_file (char *file, char **data2) {
             data_size += retval;
         }
     }
-    
+
     close(fd);
     *data2 = data;
     return data_size;
@@ -369,7 +374,7 @@ void run_test () {
     test_count += 1;
 
     rx_match(test_rx, test_m, test_string->usize, test_string->ustr, 0);
-    
+
     if (expected_count == 0) {
         fail = test_m->success ? 0 : 1;
         goto show_result;
@@ -385,7 +390,7 @@ void run_test () {
         fail = test_m->success ? 1 : 0;
         goto show_result;
     }
-    
+
     if (!test_m->success) {
         fail = 1;
         goto show_result;
@@ -415,7 +420,7 @@ void run_test () {
     show_result:
     if (fail) {
         failed_tests += 1;
-        printf("not ");
+        printf("\x1b[1;31mnot ");
     }
     printf("ok %d - %.*s\n", test_count, test_rx->regexp_size, test_rx->regexp);
     if (errorstr) {
@@ -443,6 +448,9 @@ void run_test () {
         printf("    got:\n");
         printf("    0: ~\n");
     }
+    if (fail) {
+        printf("\x1b[0m");
+    }
     printf("\n");
 }
 
@@ -462,7 +470,7 @@ void process_file (char *file) {
     char *data;
     int data_size = read_file(file, &data);
 
-    test_string = malloc(sizeof(urstr_t));
+    test_string = calloc(1, sizeof(urstr_t));
     test_rx = rx_alloc();
     test_m = rx_matcher_alloc();
 
@@ -496,12 +504,12 @@ void process_file (char *file) {
         char *test_regexp = m->cap_str[1];
         int test_regexp_size = m->cap_size[1];
 
-        // printf("regexp is [%.*s]\n", test_regexp_size, test_regexp);
+        //printf("regexp is [%.*s]\n", test_regexp_size, test_regexp);
 
         char *content = m->cap_str[2];
         int content_size = m->cap_size[2];
 
-        // printf("content is [%.*s]\n", content_size, content);
+        //printf("content is [%.*s]\n", content_size, content);
 
         pos = m->cap_end[2];
 
@@ -534,33 +542,52 @@ void process_file (char *file) {
 }
 
 int main (int argc, char **argv) {
-    char *files[argc];
-    int file_count = 0;
+
+    // This part will enable ansi escape sequences on windows
+    #ifdef _WIN32
+    HANDLE out = GetStdHandle(STD_OUTPUT_HANDLE);
+    if (out == INVALID_HANDLE_VALUE) {
+        return 1;
+    }
+
+    DWORD mode = 0;
+    if (!GetConsoleMode(out, &mode)) {
+        return 1;
+    }
+
+    #define ENABLE_VIRTUAL_TERMINAL_PROCESSING 0x0004
+    mode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+    if (!SetConsoleMode(out, mode)) {
+        return 1;
+    }
+    #endif
+
+    int argc2 = 1;
 
     for (int i = 1; i < argc; i += 1) {
         if (eq(argv[i], "-h") || eq(argv[i], "--help") || eq(argv[i], "-help") || eq(argv[i], "-?")) {
             usage();
         } else if (eq(argv[i], "--")) {
             for (i += 1; i < argc; i += 1) {
-                files[file_count] = argv[i];
-                file_count += 1;
+                argv[argc2] = argv[i];
+                argc2 += 1;
             }
         } else if (argv[i][0] == '-') {
             printf("Unrecognized option \"%s\"\n", argv[i]);
             return 1;
         } else {
-            files[file_count] = argv[i];
-            file_count += 1;
+            argv[argc2] = argv[i];
+            argc2 += 1;
         }
     }
 
-    if (file_count == 0) {
-        files[file_count] = "testdata.txt";
-        file_count += 1;
+    if (argc2 == 1) {
+        argv[argc2] = "testdata.txt";
+        argc2 += 1;
     }
 
-    for (int i = 0; i < file_count; i += 1) {
-        process_file(files[i]);
+    for (int i = 1; i < argc2; i += 1) {
+        process_file(argv[i]);
     }
 
     printf("1..%d\n", test_count);

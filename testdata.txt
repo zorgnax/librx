@@ -126,7 +126,7 @@
 
 \D+
     abc 2345 def
-    0: abc 
+    0: abc\x20
 
 \d+
     abc 2345 def
