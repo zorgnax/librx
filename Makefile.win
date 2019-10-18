@@ -1,12 +1,12 @@
 CFLAGS =
 PREFIX ?= $(DESTDIR)/usr/local
 
-all: librx.dll testsuite.exe example1.exe example2.exe example3.exe example4.exe example5.exe
+all: librx.dll test.exe example1.exe example2.exe example3.exe example4.exe example5.exe
 
 librx.dll: rx.c rx.h
 	CL $(CFLAGS) $(filter %.c, $^) /link /DLL /DEF:librx.def /OUT:$@
 
-testsuite.exe: testsuite.c librx.lib
+test.exe: test.c librx.lib
 	CL $(CFLAGS) $^
 
 example1.exe: example1.c librx.lib

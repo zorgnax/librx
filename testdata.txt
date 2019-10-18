@@ -1,6 +1,10 @@
-# Run ./test to run these tests. See testsuite.c for a description of this file format.
+# Run ./test to run these tests. See test.c for a description of this file format.
 
-[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+)*
+(a|bcdef|g|ab|c|d|e|efg|fg)*
+    abcdefg
+    1: g
+
+[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+)*$
     example.com
     sub.example.com
     sub.sub.example.com

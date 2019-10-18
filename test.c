@@ -1,4 +1,4 @@
-// This is a program that runs a testsuite on the librx library. It reads testdata.txt
+// This is a program that runs tests on the librx library. It reads testdata.txt
 // for regular expressions and strings to run those regular expressions against and
 // check if the result is the expected result. The output is in tap format. The input
 // format is something like this:
@@ -368,7 +368,7 @@ void fill_expected_array (matcher_t *m, char *str) {
     }
 }
 
-void run_test () {
+void run_test (int line) {
     int fail = 0;
     char *errorstr = NULL;
     test_count += 1;
@@ -422,7 +422,11 @@ void run_test () {
         failed_tests += 1;
         printf("\x1b[1;31mnot ");
     }
-    printf("ok %d - %.*s\n", test_count, test_rx->regexp_size, test_rx->regexp);
+    printf("ok %d - %.*s", test_count, test_rx->regexp_size, test_rx->regexp);
+    if (fail) {
+        printf(" at line %d", line);
+    }
+    printf("\n");
     if (errorstr) {
         printf("    %s\n", errorstr);
         return;
@@ -456,7 +460,7 @@ void run_test () {
 
 void usage () {
     char str[] =
-        "This program runs the testsuite against librx.\n"
+        "This program runs tests against librx.\n"
         "\n"
         "Usage: ./test [-h]\n"
         "\n"
@@ -464,6 +468,16 @@ void usage () {
         "    -h          help text";
     puts(str);
     exit(0);
+}
+
+int count_lines (char *str, int pos1, int pos2) {
+    int i, lines = 0;
+    for (i = pos1; i < pos2; i += 1) {
+        if (str[i] == '\n') {
+            lines += 1;
+        }
+    }
+    return lines;
 }
 
 void process_file (char *file) {
@@ -493,6 +507,7 @@ void process_file (char *file) {
     rx_init(rx2, sizeof(regexp2) - 1, regexp2);
 
     int pos = 0;
+    int line = 1;
     matcher_t *m = rx_matcher_alloc();
 
     while (1) {
@@ -508,9 +523,11 @@ void process_file (char *file) {
 
         char *content = m->cap_str[2];
         int content_size = m->cap_size[2];
+        int content_lines = count_lines(content, 0, content_size) + 1;
 
         //printf("content is [%.*s]\n", content_size, content);
 
+        line += count_lines(data, pos, m->cap_start[0]);
         pos = m->cap_end[2];
 
         rx_init(test_rx, test_regexp_size, test_regexp);
@@ -519,6 +536,7 @@ void process_file (char *file) {
             failed_tests += 1;
             printf("not ok %d - %.*s\n", test_count, test_regexp_size, test_regexp);
             printf("    %s\n\n", test_rx->errorstr);
+            line += content_lines;
             continue;
         }
 
@@ -528,6 +546,7 @@ void process_file (char *file) {
             if (!m->success) {
                 break;
             }
+            int line_offset = count_lines(content, 0, m->cap_start[0]) + 1;
             pos2 = m->cap_end[0];
 
             test_string->str = m->cap_str[1];
@@ -536,8 +555,9 @@ void process_file (char *file) {
 
             fill_expected_array(m, content);
 
-            run_test();
+            run_test(line + line_offset);
         }
+        line += content_lines;
     }
 }
 
@@ -594,8 +614,9 @@ int main (int argc, char **argv) {
     if (failed_tests) {
         printf("# Looks like you failed %d test%s of %d run.\n", failed_tests, failed_tests == 1 ? "" : "s", test_count);
         return 1;
+    } else {
+        printf("# All tests successful.\n");
+        return 0;
     }
-
-    return 0;
 }
 

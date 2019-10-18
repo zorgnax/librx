@@ -11,12 +11,12 @@ else
     LIB = librx.so
 endif
 
-all: $(LIB) testsuite example1 example2 example3 example4 example5
+all: $(LIB) test example1 example2 example3 example4 example5
 
 $(LIB): rx.c rx.h
 	$(CC) $(LFLAGS) $(CFLAGS) $(filter %.c, $^) -o $@
 
-testsuite: testsuite.c $(LIB)
+test: test.c $(LIB)
 	$(CC) $(CFLAGS) $^ -o $@
 
 example1: example1.c $(LIB)
@@ -34,8 +34,8 @@ example4: example4.c $(LIB)
 example5: example5.c $(LIB)
 	$(CC) $(CFLAGS) $^ -o $@
 
-check: testsuite
-	./testsuite
+check: test
+	./test
 
 install: $(LIB) rx.h
 	mkdir -p $(PREFIX)/lib $(PREFIX)/include
@@ -46,5 +46,5 @@ uninstall:
 	rm $(PREFIX)/lib/$(LIB) $(PREFIX)/lib/rx.h
 
 clean:
-	rm -rf a.out *.dSYM $(LIB) testsuite example[0-9]
+	rm -rf a.out *.dSYM $(LIB) test example[0-9]
 

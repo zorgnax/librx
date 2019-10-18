@@ -1396,4 +1396,6 @@ void rx_matcher_free (matcher_t *m) {
 }
 
 // TODO maybe duplicate subgraphs for quantifier instead of maintaining state in path array
-
+// TODO does re2 convert a{5} to aaaaa or maintain a quantifier node with a value of 5?
+// TODO maybe a make.bat instead of requiring gnu make to exist on windows
+//
