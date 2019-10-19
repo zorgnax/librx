@@ -304,11 +304,13 @@ On MacOS and Linux
     make check
     sudo make install
 
-On Windows, you must first install GNU Make, and find vcvars32.bat usually distributed with visual studio and run it. The you can run this:
+On Windows, you must first find vcvars32.bat usually distributed with visual studio and run it. Then you can run this:
 
-    make -f Makefile.win
-    make -f Makefile.win check
-    make -f Makefile.win install
+    make.bat
+
+It will make librx.dll and librx.lib in the directory, which you can either copy into your project's directory (along with rx.h) or you can copy them manually into C:\Windows\System32 to have them installed globally.
+
+If vcvars32.bat is in your path, make.bat will run it for you if it doesn't find CL (the microsoft C compiler) in your path.
 
 If you want to use the rx_print() function, which outputs utf-8 characters, you need to set cmd.exe to display utf-8 by running:
 

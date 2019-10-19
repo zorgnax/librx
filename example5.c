@@ -249,7 +249,7 @@ void find (int size, char *file) {
     struct stat st;
     int retval = stat(file, &st);
     if (retval < 0) {
-        fprintf(stderr, "Can't stat file: %s\n", strerror(errno));
+        fprintf(stderr, "Can't stat %s: %s\n", file, strerror(errno));
         return;
     }
 
@@ -261,7 +261,8 @@ void find (int size, char *file) {
         _snprintf(file2, MAX_PATH, "%s\\*", file);
         HANDLE h = FindFirstFile(file2, &fd);
         if (h == INVALID_HANDLE_VALUE) {
-            fprintf(stderr, "FindFirstFile %s\n", file2);
+            fprintf(stderr, "Can't find file: %s\n", file2);
+            return;
         }
         do {
             if (eq(fd.cFileName, ".") || eq(fd.cFileName, "..")) {
@@ -298,7 +299,7 @@ void find (int size, char *file) {
 }
 
 int main (int argc, char **argv) {
-    // This part will enable ansi escape sequences on windows
+    // This part will enable ANSI escape sequences on Windows
     #ifdef _WIN32
     HANDLE out = GetStdHandle(STD_OUTPUT_HANDLE);
     if (out == INVALID_HANDLE_VALUE) {
@@ -317,9 +318,9 @@ int main (int argc, char **argv) {
     }
     #endif
 
-    int argc2 = 1;
+    int i, j;
 
-    for (int i = 1; i < argc; i += 1) {
+    for (i = 1, j = 1; i < argc; i += 1) {
         if (eq(argv[i], "-h")) {
             usage();
         } else if (eq(argv[i], "-A")) {
@@ -342,19 +343,20 @@ int main (int argc, char **argv) {
             i += 1;
         } else if (eq(argv[i], "--")) {
             for (i += 1; i < argc; i += 1) {
-                argv[argc2] = argv[i];
-                argc2 += 1;
+                argv[j] = argv[i];
+                j += 1;
             }
         } else if (argv[i][0] == '-') {
             printf("Unrecognized option \"%s\".\n", argv[i]);
             return 1;
         } else {
-            argv[argc2] = argv[i];
-            argc2 += 1;
+            argv[j] = argv[i];
+            j += 1;
         }
     }
+    argc = j;
 
-    if (argc2 == 1) {
+    if (argc == 1) {
         printf("A regexp is required.\n");
         return 1;
     }
@@ -369,12 +371,12 @@ int main (int argc, char **argv) {
 
     if (!isatty(0)) {
         process_file(0, "stdin");
-    } else if (argc2 == 2) {
-        argv[argc2] = ".";
-        argc2 += 1;
+    } else if (argc == 2) {
+        argv[argc] = ".";
+        argc += 1;
     }
 
-    for (int i = 2; i < argc2; i += 1) {
+    for (int i = 2; i < argc; i += 1) {
         char *file = argv[i];
         int size = strlen(file);
         find(size, file);

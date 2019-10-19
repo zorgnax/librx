@@ -563,7 +563,7 @@ void process_file (char *file) {
 
 int main (int argc, char **argv) {
 
-    // This part will enable ansi escape sequences on windows
+    // This part will enable ANSI escape sequences on Windows
     #ifdef _WIN32
     HANDLE out = GetStdHandle(STD_OUTPUT_HANDLE);
     if (out == INVALID_HANDLE_VALUE) {
