@@ -49,12 +49,12 @@ typedef struct {
 
 typedef struct {
     char negated;
-    int value_count;
-    int value_offset;
-    int range_count;
-    int range_offset;
-    int char_set_count;
-    int char_set_offset;
+    int values_count;
+    char *values;
+    int ranges_count;
+    char *ranges;
+    int char_sets_count;
+    char *char_sets;
     int str_size;
     char *str;
 } char_class_t;
@@ -65,8 +65,8 @@ struct node_t {
     union {
         unsigned char value;
         node_t *next2;
-        int qval_offset;
-        int ccval_offset;
+        quantifier_t *qval;
+        char_class_t *ccval;
     };
 };
 
@@ -74,19 +74,22 @@ typedef struct {
     node_t *start;
     int regexp_size;
     char *regexp;
-    node_t *nodes;
+    node_t **nodes;
     int nodes_count;
     int nodes_allocated;
     int cap_count;
-    int max_cap_depth;
+    int cap_allocated;
     node_t **cap_start;
     node_t **or_end;
     int error;
     char *errorstr;
     int ignorecase;
-    char *data;
-    int data_count;
-    int data_allocated;
+    int quantifiers_count;
+    int quantifiers_allocated;
+    quantifier_t **quantifiers;
+    int char_classes_count;
+    int char_classes_allocated;
+    char_class_t **char_classes;
 } rx_t;
 
 typedef struct {

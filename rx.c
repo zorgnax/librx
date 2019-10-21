@@ -85,16 +85,26 @@ int rx_hex_to_int (char *str, int size, unsigned int *dest) {
 }
 
 node_t *rx_node_create (rx_t *rx) {
-    node_t *n = &rx->nodes[rx->nodes_count];
-    rx->nodes_count += 1;
+    node_t *n = malloc(sizeof(node_t));
     n->type = EMPTY;
     n->next = NULL;
+    if (rx->nodes_count >= rx->nodes_allocated) {
+        rx->nodes_allocated *= 2;
+        rx->nodes = realloc(rx->nodes, rx->nodes_allocated * sizeof(node_t *));
+    }
+    rx->nodes[rx->nodes_count] = n;
+    rx->nodes_count += 1;
     return n;
 }
 
 int rx_node_index (rx_t *rx, node_t *n) {
-    int index = n - rx->nodes;
-    return index;
+    // This is slow.
+    for (int i = 0; i < rx->nodes_count; i += 1) {
+        if (rx->nodes[i] == n) {
+            return i;
+        }
+    }
+    return 0;
 }
 
 void rx_match_print (matcher_t *m) {
@@ -127,7 +137,7 @@ void rx_print (rx_t *rx) {
     FILE *fp = fopen("/tmp/nfa.txt", "w");
     fprintf(fp, "graph g {\n");
     for (int i = 0; i < rx->nodes_count; i += 1) {
-        node_t *n = &rx->nodes[i];
+        node_t *n = rx->nodes[i];
         int i1 = rx_node_index(rx, n);
         int i2 = rx_node_index(rx, n->next);
 
@@ -173,7 +183,7 @@ void rx_print (rx_t *rx) {
             char *label = labels[n->value];
             fprintf(fp, "    %d -> %d [label=\"%s\"]\n", i1, i2, label);
         } else if (n->type == CHAR_CLASS) {
-            char_class_t *ccval = (char_class_t *) (rx->data + n->ccval_offset);
+            char_class_t *ccval = n->ccval;
             fprintf(fp, "    %d [label=\"%dC\"]\n", i1, i1);
             fprintf(fp, "    %d -> %d [label=\"%.*s\"]\n", i1, i2, ccval->str_size, ccval->str);
         } else if (n->type == CHAR_SET) {
@@ -191,7 +201,7 @@ void rx_print (rx_t *rx) {
             fprintf(fp, "    %d [label=\"%dC\"]\n", i1, i1);
             fprintf(fp, "    %d -> %d [label=\"%s\"]\n", i1, i2, label);
         } else if (n->type == QUANTIFIER) {
-            quantifier_t *qval = (quantifier_t *) (rx->data + n->qval_offset);
+            quantifier_t *qval = n->qval;
             if (qval->greedy) {
                 int i3 = rx_node_index(rx, qval->next);
                 fprintf(fp, "    %d [label=\"%dQ\"]\n", i1, i1);
@@ -241,7 +251,7 @@ int rx_error (rx_t *rx, char *fmt, ...) {
 }
 
 int rx_char_class_parse (rx_t *rx, int pos, int *pos2, int save, char_class_t *ccval) {
-    int value_count = 0, range_count = 0, char_set_count = 0;
+    int values_count = 0, ranges_count = 0, char_sets_count = 0;
     char *regexp = rx->regexp;
     int regexp_size = rx->regexp_size;
     char c1, c2;
@@ -269,16 +279,16 @@ int rx_char_class_parse (rx_t *rx, int pos, int *pos2, int save, char_class_t *c
                     return rx_error(rx, "Can't have \\%c after -.", c2);
                 }
                 if (save) {
-                    rx->data[ccval->char_set_offset + char_set_count]
-                                = c2 == 'N' ? CS_NOTNL
-                                : c2 == 'd' ? CS_DIGIT
-                                : c2 == 'D' ? CS_NOTDIGIT
-                                : c2 == 'w' ? CS_WORD
-                                : c2 == 'W' ? CS_NOTWORD
-                                : c2 == 's' ? CS_SPACE
-                                : c2 == 'S' ? CS_NOTSPACE : 0;
+                    ccval->char_sets[char_sets_count]
+                        = c2 == 'N' ? CS_NOTNL
+                        : c2 == 'd' ? CS_DIGIT
+                        : c2 == 'D' ? CS_NOTDIGIT
+                        : c2 == 'w' ? CS_WORD
+                        : c2 == 'W' ? CS_NOTWORD
+                        : c2 == 's' ? CS_SPACE
+                        : c2 == 'S' ? CS_NOTSPACE : 0;
                 }
-                char_set_count += 1;
+                char_sets_count += 1;
                 seen_special = c2;
                 pos += 2;
                 continue;
@@ -340,10 +350,10 @@ int rx_char_class_parse (rx_t *rx, int pos, int *pos2, int save, char_class_t *c
         if (char1_size && seen_dash) {
             // Range
             if (save) {
-                memcpy(rx->data + ccval->range_offset + range_count, char1, char1_size);
-                range_count += char1_size;
-                memcpy(rx->data + ccval->range_offset + range_count, char2, char2_size);
-                range_count += char2_size;
+                memcpy(ccval->ranges + ranges_count, char1, char1_size);
+                ranges_count += char1_size;
+                memcpy(ccval->ranges + ranges_count, char2, char2_size);
+                ranges_count += char2_size;
             }
             else {
                 if (seen_special) {
@@ -352,7 +362,7 @@ int rx_char_class_parse (rx_t *rx, int pos, int *pos2, int save, char_class_t *c
                 if (char1_size > char2_size || strncmp(char1, char2, char1_size) >= 0) {
                     return rx_error(rx, "End of range must be higher than start.");
                 }
-                range_count += char1_size + char2_size;
+                ranges_count += char1_size + char2_size;
             }
             seen_dash = 0;
             char1_size = 0;
@@ -362,9 +372,9 @@ int rx_char_class_parse (rx_t *rx, int pos, int *pos2, int save, char_class_t *c
             // Value
             if (char1_size) {
                 if (save) {
-                    memcpy(rx->data + ccval->value_offset + value_count, char1, char1_size);
+                    memcpy(ccval->values + values_count, char1, char1_size);
                 }
-                value_count += char1_size;
+                values_count += char1_size;
             }
             memcpy(char1, char2, char2_size);
             char1_size = char2_size;
@@ -373,15 +383,15 @@ int rx_char_class_parse (rx_t *rx, int pos, int *pos2, int save, char_class_t *c
     }
     if (char1_size) {
         if (save) {
-            memcpy(rx->data + ccval->value_offset + value_count, char1, char1_size);
+            memcpy(ccval->values + values_count, char1, char1_size);
         }
-        value_count += char1_size;
+        values_count += char1_size;
     }
     if (seen_dash) {
         if (save) {
-            rx->data[ccval->value_offset + value_count] = '-';
+            ccval->values[values_count] = '-';
         }
-        value_count += 1;
+        values_count += 1;
     }
     if (pos >= regexp_size || regexp[pos] != ']') {
         return rx_error(rx, "Expected ].");
@@ -389,28 +399,17 @@ int rx_char_class_parse (rx_t *rx, int pos, int *pos2, int save, char_class_t *c
     if (save) {
         *pos2 = pos;
     }
-    ccval->value_count = value_count;
-    ccval->range_count = range_count;
-    ccval->char_set_count = char_set_count;
+    ccval->values_count = values_count;
+    ccval->ranges_count = ranges_count;
+    ccval->char_sets_count = char_sets_count;
     return 1;
 }
 
-// Stores a block of data inside the rx object so the data can be reused and freed
-// as one. users must only store offsets into it, since it may be realloced.
-int rx_internal_alloc (rx_t *rx, int size) {
-    if (rx->data_allocated == 0) {
-        rx->data_allocated = (size > 100) ? (size + 100) : 100;
-        rx->data = malloc(rx->data_allocated);
-    } else if (rx->data_allocated - rx->data_count < size) {
-        rx->data_allocated *= 2;
-        if (rx->data_allocated - rx->data_count < size) {
-            rx->data_allocated += size;
-        }
-        rx->data = realloc(rx->data, rx->data_allocated);
-    }
-    int offset = rx->data_count;
-    rx->data_count += size;
-    return offset;
+void char_class_free (char_class_t *ccval) {
+    free(ccval->values);
+    free(ccval->ranges);
+    free(ccval->char_sets);
+    free(ccval);
 }
 
 // This construct is character oriented. If you write [☃], it will match the 3
@@ -418,55 +417,63 @@ int rx_internal_alloc (rx_t *rx, int size) {
 // if you specify a range like [Α-Ω], Greek alpha to omega, it will match only
 // characters in that range, and not invalid bytes in that sequence. You can also
 // enter invalid bytes, and they will only match 1 byte at a time.
-int rx_char_class_init (rx_t *rx, int pos, int *pos2, int *ccval_offset) {
+int rx_char_class_init (rx_t *rx, int pos, int *pos2, char_class_t **ccval2) {
     char *regexp = rx->regexp;
     int regexp_size = rx->regexp_size;
-    char_class_t ccval = {0};
-    ccval.str = regexp + pos;
 
     if (pos + 1 >= regexp_size) {
-        return rx_error(rx, "Expected a character after [.");
+        rx_error(rx, "Expected a character after [.");
+        return 0;
     }
+    char_class_t *ccval = calloc(1, sizeof(char_class_t));
+    ccval->str = regexp + pos;
     pos += 1;
     char c1 = regexp[pos];
     if (c1 == '^') {
-        ccval.negated = 1;
+        ccval->negated = 1;
         if (pos + 1 >= regexp_size) {
-            return rx_error(rx, "Expected a character in [.");
+            rx_error(rx, "Expected a character in [.");
+            char_class_free(ccval);
+            return 0;
         }
         pos += 1;
     }
 
-    // Count the number of values and ranges needed before allocating them
-    if(!rx_char_class_parse(rx, pos, &pos, 0, &ccval)) {
+    // Count the number of values and ranges needed before allocating them.
+    if(!rx_char_class_parse(rx, pos, &pos, 0, ccval)) {
+        char_class_free(ccval);
         return 0;
     }
 
-    // Allocate the arrays
-    if (ccval.value_count) {
-        ccval.value_offset = rx_internal_alloc(rx, ccval.value_count + 1);
-        rx->data[ccval.value_offset + ccval.value_count] = '\0';
+    // Allocate the arrays.
+    if (ccval->values_count) {
+        ccval->values = malloc(ccval->values_count + 1);
+        ccval->values[ccval->values_count] = '\0';
     }
-    if (ccval.range_count) {
-        ccval.range_offset = rx_internal_alloc(rx, ccval.range_count + 1);
-        rx->data[ccval.range_offset + ccval.range_count] = '\0';
+    if (ccval->ranges_count) {
+        ccval->ranges = malloc(ccval->ranges_count + 1);
+        ccval->ranges[ccval->ranges_count] = '\0';
     }
-    if (ccval.char_set_count) {
-        ccval.char_set_offset = rx_internal_alloc(rx, ccval.char_set_count);
+    if (ccval->char_sets_count) {
+        ccval->char_sets = malloc(ccval->char_sets_count);
     }
 
-    // Fill in the arrays
-    rx_char_class_parse(rx, pos, &pos, 1, &ccval);
-    ccval.str_size = regexp + pos - ccval.str + 1;
+    // Fill in the arrays.
+    rx_char_class_parse(rx, pos, &pos, 1, ccval);
+    ccval->str_size = regexp + pos - ccval->str + 1;
+    if (rx->char_classes_count >= rx->char_classes_allocated) {
+        rx->char_classes_allocated *= 2;
+        rx->char_classes = realloc(rx->char_classes, rx->char_classes_allocated * sizeof(char_class_t *));
+    }
+    rx->char_classes[rx->char_classes_count] = ccval;
+    rx->char_classes_count += 1;
 
     *pos2 = pos;
-    *ccval_offset = rx_internal_alloc(rx, sizeof(char_class_t));
-    char_class_t *ccval2 = (char_class_t *) (rx->data + *ccval_offset);
     *ccval2 = ccval;
     return 1;
 }
 
-int rx_quantifier_init (rx_t *rx, int pos, int *pos2, int *qval_offset) {
+int rx_quantifier_init (rx_t *rx, int pos, int *pos2, quantifier_t **qval2) {
     int regexp_size = rx->regexp_size;
     char *regexp = rx->regexp;
     char c;
@@ -520,17 +527,65 @@ int rx_quantifier_init (rx_t *rx, int pos, int *pos2, int *qval_offset) {
         // greedy
         greedy = 1;
     }
-    *pos2 = pos;
-    (*qval_offset) = rx_internal_alloc(rx, sizeof(quantifier_t));
-    quantifier_t *qval = (quantifier_t *) (rx->data + *qval_offset);
+    quantifier_t *qval = malloc(sizeof(quantifier_t));
     qval->min = min;
     qval->max = max;
     qval->greedy = greedy;
+    if (rx->quantifiers_count >= rx->quantifiers_allocated) {
+        rx->quantifiers_allocated *= 2;
+        rx->quantifiers = realloc(rx->quantifiers, rx->quantifiers_allocated * sizeof(quantifier_t *));
+    }
+    rx->quantifiers[rx->quantifiers_count] = qval;
+    rx->quantifiers_count += 1;
+    *pos2 = pos;
+    *qval2 = qval;
     return 1;
+}
+
+static void rx_partial_free (rx_t *rx) {
+    int i;
+    for (i = 0; i < rx->nodes_count; i += 1) {
+        node_t *n = rx->nodes[i];
+        free(n);
+    }
+    rx->nodes_count = 0;
+    for (i = 0; i < rx->quantifiers_count; i += 1) {
+        quantifier_t *q = rx->quantifiers[i];
+        free(q);
+    }
+    rx->quantifiers_count = 0;
+    for (i = 0; i < rx->char_classes_count; i += 1) {
+        char_class_t *c = rx->char_classes[i];
+        char_class_free(c);
+    }
+    rx->char_classes_count = 0;
+    rx->error = 0;
+    rx->cap_count = 0;
+    rx->ignorecase = 0;
+}
+
+void rx_free (rx_t *rx) {
+    rx_partial_free(rx);
+    free(rx->nodes);
+    free(rx->cap_start);
+    free(rx->or_end);
+    free(rx->quantifiers);
+    free(rx->char_classes);
+    free(rx->errorstr);
+    free(rx);
 }
 
 rx_t *rx_alloc () {
     rx_t *rx = calloc(1, sizeof(rx_t));
+    rx->nodes_allocated = 10;
+    rx->nodes = malloc(rx->nodes_allocated * sizeof(node_t *));
+    rx->quantifiers_allocated = 10;
+    rx->quantifiers = malloc(rx->quantifiers_allocated * sizeof(quantifier_t *));
+    rx->char_classes_allocated = 10;
+    rx->char_classes = malloc(rx->char_classes_allocated * sizeof(char_class_t *));
+    rx->cap_allocated = 10;
+    rx->cap_start = malloc(rx->cap_allocated * sizeof(node_t *));
+    rx->or_end = malloc(rx->cap_allocated * sizeof(node_t *));
     return rx;
 }
 
@@ -547,50 +602,17 @@ matcher_t *rx_matcher_alloc () {
     return m;
 }
 
-// Returns 1 on success
+// Returns 1 on success.
 int rx_init (rx_t *rx, int regexp_size, char *regexp) {
-    rx->error = 0;
-
-    // Preallocate the space needed for nodes. Since each character can
-    // add at most 2 nodes, the count of nodes needed shouldn't be
-    // more than 2 * (x + 1). Also count the max capture nest depth, which can't
-    // take into account ) since it could be \) or [)] without a full parse, so
-    // set it to the number of times ( appears in the regexp.
-    //
-    // All allocations that occur in rx_init are reuseable in subsequent calls to it.
-    // Nothing is freed until rx_free() is called, and that only needs to happen
-    // once when the user is entirely done with regexps.
-    int cap_depth = 0;
-    int max_cap_depth = 0;
-    int max_node_count = (regexp_size + 1) * 2;
-    for (int pos = 0; pos <= regexp_size; pos += 1) {
-        char c = regexp[pos];
-        if (c == '(') {
-            max_cap_depth += 1;
-        }
-    }
-
-    if (max_node_count > rx->nodes_allocated) {
-        rx->nodes_allocated = max_node_count;
-        rx->nodes = realloc(rx->nodes, rx->nodes_allocated * sizeof(node_t));
-    }
-
-    if (max_cap_depth > rx->max_cap_depth) {
-        rx->max_cap_depth = max_cap_depth;
-        rx->cap_start = realloc(rx->cap_start, rx->max_cap_depth * sizeof(node_t *));
-        rx->or_end = realloc(rx->or_end, rx->max_cap_depth * sizeof(node_t *));
-    }
-
-    rx->data_count = 0;
-    rx->nodes_count = 0;
+    rx_partial_free(rx);
     rx->regexp_size = regexp_size;
     rx->regexp = regexp;
     rx->start = rx_node_create(rx);
+    
     node_t *node = rx->start;
     node_t *atom_start = NULL;
     node_t *or_end = NULL;
-    rx->cap_count = 0;
-    rx->ignorecase = 0;
+    int cap_depth = 0;
 
     for (int pos = 0; pos < regexp_size; pos += 1) {
         unsigned char c = regexp[pos];
@@ -606,6 +628,11 @@ int rx_init (rx_t *rx, int regexp_size, char *regexp) {
             }
             node_t *node2 = rx_node_create(rx);
             node->next = node2;
+            if (cap_depth >= rx->cap_allocated) {
+                rx->cap_allocated *= 2;
+                rx->cap_start = realloc(rx->cap_start, rx->cap_allocated * sizeof(node_t *));
+                rx->or_end = realloc(rx->or_end, rx->cap_allocated * sizeof(node_t *));
+            }
             rx->cap_start[cap_depth] = node;
             rx->or_end[cap_depth] = or_end;
             or_end = NULL;
@@ -722,16 +749,15 @@ int rx_init (rx_t *rx, int regexp_size, char *regexp) {
             if (!atom_start) {
                 return rx_error(rx, "Expected something to apply the {.");
             }
-            int qval_offset;
-            if (!rx_quantifier_init(rx, pos, &pos, &qval_offset)) {
+            quantifier_t *qval;
+            if (!rx_quantifier_init(rx, pos, &pos, &qval)) {
                 return 0;
             }
             node_t *node2 = rx_node_create(rx);
             node_t *node3 = rx_node_create(rx);
             *node2 = *atom_start;
             atom_start->type = QUANTIFIER;
-            atom_start->qval_offset = qval_offset;
-            quantifier_t *qval = (quantifier_t *) (rx->data + qval_offset);
+            atom_start->qval = qval;
             // For QUANTIFIER nodes, qval->next points into the subgraph and next
             // points out of it.
             atom_start->next = node3;
@@ -749,37 +775,36 @@ int rx_init (rx_t *rx, int regexp_size, char *regexp) {
             if (c2 == 'G') {
                 node_t *node2 = rx_node_create(rx);
                 node->type = ASSERTION;
-                node->next = node2;
                 node->value = ASSERT_SOP;
+                node->next = node2;
                 node = node2;
             } else if (c2 == '<') {
                 node_t *node2 = rx_node_create(rx);
                 node->type = ASSERTION;
-                node->next = node2;
                 node->value = ASSERT_SOW;
+                node->next = node2;
                 node = node2;
             } else if (c2 == '>') {
                 node_t *node2 = rx_node_create(rx);
                 node->type = ASSERTION;
-                node->next = node2;
                 node->value = ASSERT_EOW;
+                node->next = node2;
                 node = node2;
             } else if (c2 == 'c') {
                 rx->ignorecase = 1;
             } else if (c2 == 'e' || c2 == 'r' || c2 == 'n' || c2 == 't') {
                 node_t *node2 = rx_node_create(rx);
                 node->type = TAKE;
-                node->next = node2;
                 node->value = c2 == 'e' ? '\x1b'
                             : c2 == 'r' ? '\r'
                             : c2 == 'n' ? '\n'
                             : c2 == 't' ? '\t' : '\0';
+                node->next = node2;
                 atom_start = node;
                 node = node2;
             } else if (c2 == 'N' || c2 == 'd' || c2 == 'D' || c2 == 'w' || c2 == 'W' || c2 == 's' || c2 == 'S') {
                 node_t *node2 = rx_node_create(rx);
                 node->type = CHAR_SET;
-                node->next = node2;
                 node->value = c2 == 'N' ? CS_NOTNL
                             : c2 == 'd' ? CS_DIGIT
                             : c2 == 'D' ? CS_NOTDIGIT
@@ -787,7 +812,7 @@ int rx_init (rx_t *rx, int regexp_size, char *regexp) {
                             : c2 == 'W' ? CS_NOTWORD
                             : c2 == 's' ? CS_SPACE
                             : c2 == 'S' ? CS_NOTSPACE : 0;
-
+                node->next = node2;
                 atom_start = node;
                 node = node2;
             } else if (c2 == 'x') {
@@ -801,8 +826,8 @@ int rx_init (rx_t *rx, int regexp_size, char *regexp) {
                 pos += 2;
                 node_t *node2 = rx_node_create(rx);
                 node->type = TAKE;
-                node->next = node2;
                 node->value = i;
+                node->next = node2;
                 atom_start = node;
                 node = node2;
             } else if (c2 == 'u' || c2 == 'U') {
@@ -824,17 +849,17 @@ int rx_init (rx_t *rx, int regexp_size, char *regexp) {
                 for (i = 0; i < str_size; i += 1) {
                     node_t *node2 = rx_node_create(rx);
                     node->type = TAKE;
-                    node->next = node2;
                     node->value = str[i];
+                    node->next = node2;
                     node = node2;
                 }
 
             } else {
-                // Unrecognized backslash escape will match itself, for example \\ \* \+ \?
+                // Unrecognized backslash escape will match itself, for example \\ or \*
                 node_t *node2 = rx_node_create(rx);
                 node->type = TAKE;
-                node->next = node2;
                 node->value = c2;
+                node->next = node2;
                 atom_start = node;
                 node = node2;
             }
@@ -865,14 +890,14 @@ int rx_init (rx_t *rx, int regexp_size, char *regexp) {
             }
             node = node2;
         } else if (c == '[') {
-            int ccval_offset;
-            if (!rx_char_class_init(rx, pos, &pos, &ccval_offset)) {
+            char_class_t *ccval;
+            if (!rx_char_class_init(rx, pos, &pos, &ccval)) {
                 return 0;
             }
             node_t *node2 = rx_node_create(rx);
             node->type = CHAR_CLASS;
+            node->ccval = ccval;
             node->next = node2;
-            node->ccval_offset = ccval_offset;
             atom_start = node;
             node = node2;
 
@@ -922,10 +947,9 @@ static int rx_match_char_class (rx_t *rx, char_class_t *ccval, int test_size, ch
     int matched = 0;
 
     // Check the individual values
-    char *value = rx->data + ccval->value_offset;
-    for (int i = 0; i < ccval->value_count;) {
-        int char1_size = rx_utf8_char_size(ccval->value_count, value, i);
-        char *char1 = value + i;
+    for (int i = 0; i < ccval->values_count;) {
+        int char1_size = rx_utf8_char_size(ccval->values_count, ccval->values, i);
+        char *char1 = ccval->values + i;
         if (test_size == char1_size && strncmp(test, char1, test_size) == 0) {
             matched = 1;
             goto out;
@@ -934,13 +958,12 @@ static int rx_match_char_class (rx_t *rx, char_class_t *ccval, int test_size, ch
     }
 
     // Check the character ranges
-    char *range = rx->data + ccval->range_offset;
-    for (int i = 0; i < ccval->range_count;) {
-        int char1_size = rx_utf8_char_size(ccval->range_count, range, i);
-        char *char1 = range + i;
+    for (int i = 0; i < ccval->ranges_count;) {
+        int char1_size = rx_utf8_char_size(ccval->ranges_count, ccval->ranges, i);
+        char *char1 = ccval->ranges + i;
         i += char1_size;
-        int char2_size = rx_utf8_char_size(ccval->range_count, range, i);
-        char *char2 = range + i;
+        int char2_size = rx_utf8_char_size(ccval->ranges_count, ccval->ranges, i);
+        char *char2 = ccval->ranges + i;
         i += char2_size;
 
         int ge = (test_size > char1_size) ||
@@ -957,8 +980,8 @@ static int rx_match_char_class (rx_t *rx, char_class_t *ccval, int test_size, ch
 
     // Check the character sets
     char c = test[0];
-    for (int i = 0; i < ccval->char_set_count; i += 1) {
-        char cs = rx->data[ccval->char_set_offset + i];
+    for (int i = 0; i < ccval->char_sets_count; i += 1) {
+        char cs = ccval->char_sets[i];
         if (cs == CS_NOTNL) {
             if (c != '\n') {
                 matched = 1;
@@ -1161,7 +1184,7 @@ int rx_match (rx_t *rx, matcher_t *m, int str_size, char *str, int start_pos) {
                 p->node = node;
                 p->visit = 0;
                 m->path_count += 1;
-                quantifier_t *qval = (quantifier_t *) (rx->data + node->qval_offset);
+                quantifier_t *qval = node->qval;
                 if (qval->greedy) {
                     node = qval->next;
                     p->visit = 1;
@@ -1194,7 +1217,7 @@ int rx_match (rx_t *rx, matcher_t *m, int str_size, char *str, int start_pos) {
                 // I *think* I got this correct, it's hard to understand the state of
                 // the graph when returning from subgraph under greedy/nongreedy, and to
                 // be sure to save captures, etc.
-                quantifier_t *qval = (quantifier_t *) (rx->data + p->node->qval_offset);
+                quantifier_t *qval = p->node->qval;
                 if (qval->greedy) {
                     if (p->visit == qval->max) {
                         node = p->node->next;
@@ -1252,7 +1275,7 @@ int rx_match (rx_t *rx, matcher_t *m, int str_size, char *str, int start_pos) {
             }
             int test_size = rx_utf8_char_size(str_size, str, pos);
             char *test = str + pos;
-            char_class_t *ccval = (char_class_t *) (rx->data + node->ccval_offset);
+            char_class_t *ccval = node->ccval;
 
             if (rx_match_char_class(rx, ccval, test_size, test)) {
                 pos += test_size;
@@ -1320,7 +1343,6 @@ int rx_match (rx_t *rx, matcher_t *m, int str_size, char *str, int start_pos) {
                 }
             } else if (node->value == CS_NOTSPACE) {
                 if (!(c == ' ' || c == '\t' || c == '\n' || c == '\r')) {
-                    // TODO might make more sense to increment by an entire character
                     pos += 1;
                     node = node->next;
                     continue;
@@ -1344,7 +1366,7 @@ int rx_match (rx_t *rx, matcher_t *m, int str_size, char *str, int start_pos) {
                 m->path_count = i;
                 goto retry;
             } else if (p->node->type == QUANTIFIER) {
-                quantifier_t *qval = (quantifier_t *) (rx->data + p->node->qval_offset);
+                quantifier_t *qval = p->node->qval;
                 if (qval->greedy) {
                     if (p->visit > qval->min) {
                         node = p->node->next;
@@ -1363,7 +1385,7 @@ int rx_match (rx_t *rx, matcher_t *m, int str_size, char *str, int start_pos) {
             }
         }
 
-        // Try another start position
+        // Try another start position.
         if (start_pos == str_size) {
             break;
         }
@@ -1376,15 +1398,6 @@ int rx_match (rx_t *rx, matcher_t *m, int str_size, char *str, int start_pos) {
     return 0;
 }
 
-void rx_free (rx_t *rx) {
-    free(rx->nodes);
-    free(rx->cap_start);
-    free(rx->or_end);
-    free(rx->data);
-    free(rx->errorstr);
-    free(rx);
-}
-
 void rx_matcher_free (matcher_t *m) {
     free(m->path);
     free(m->cap_start);
@@ -1395,7 +1408,3 @@ void rx_matcher_free (matcher_t *m) {
     free(m);
 }
 
-// TODO maybe duplicate subgraphs for quantifier instead of maintaining state in path array
-// TODO does re2 convert a{5} to aaaaa or maintain a quantifier node with a value of 5?
-// TODO maybe a make.bat instead of requiring gnu make to exist on windows
-//
