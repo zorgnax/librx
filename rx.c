@@ -515,11 +515,6 @@ static void rx_partial_free (rx_t *rx) {
         free(n);
     }
     rx->nodes_count = 0;
-    for (i = 0; i < rx->quantifiers_count; i += 1) {
-        quantifier_t *q = rx->quantifiers[i];
-        free(q);
-    }
-    rx->quantifiers_count = 0;
     for (i = 0; i < rx->char_classes_count; i += 1) {
         char_class_t *c = rx->char_classes[i];
         char_class_free(c);
@@ -536,7 +531,6 @@ void rx_free (rx_t *rx) {
     free(rx->nodes);
     free(rx->cap_start);
     free(rx->or_end);
-    free(rx->quantifiers);
     free(rx->char_classes);
     free(rx->dfs_stack);
     free(rx->errorstr);
@@ -547,8 +541,6 @@ rx_t *rx_alloc () {
     rx_t *rx = calloc(1, sizeof(rx_t));
     rx->nodes_allocated = 10;
     rx->nodes = malloc(rx->nodes_allocated * sizeof(node_t *));
-    rx->quantifiers_allocated = 10;
-    rx->quantifiers = malloc(rx->quantifiers_allocated * sizeof(quantifier_t *));
     rx->char_classes_allocated = 10;
     rx->char_classes = malloc(rx->char_classes_allocated * sizeof(char_class_t *));
     rx->cap_allocated = 10;

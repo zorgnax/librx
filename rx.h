@@ -94,9 +94,6 @@ typedef struct {
     int error;
     char *errorstr;
     int ignorecase;
-    int quantifiers_count;
-    int quantifiers_allocated;
-    quantifier_t **quantifiers;
     int char_classes_count;
     int char_classes_allocated;
     char_class_t **char_classes;
