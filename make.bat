@@ -18,7 +18,7 @@ IF NOT DEFINED RESULT EXIT /B
 
 CALL :NEEDS_UPDATE librx.dll rx.c rx.h hash.c hash.h
 IF NOT DEFINED RESULT GOTO :ENDIF
-    CALL :DO CL %CFLAGS% rx.c hsah.c /link /DLL /DEF:librx.def /OUT:librx.dll
+    CALL :DO CL %CFLAGS% rx.c hash.c /link /DLL /DEF:librx.def /OUT:librx.dll
 :ENDIF
 
 CALL :NEEDS_UPDATE test.exe test.c librx.lib
@@ -52,7 +52,8 @@ IF NOT DEFINED RESULT GOTO :ENDIF
 :ENDIF
 
 SET TIME2=%TIME%
-IF %COUNT%==0 (CALL) ELSE (GOTO :ELSE)
+IF %COUNT%==0 (GOTO :THEN) ELSE (GOTO :ELSE)
+:THEN
     ECHO Everything up to date.
     GOTO :ENDIF
 :ELSE
