@@ -106,7 +106,6 @@ typedef struct {
 typedef struct {
     node_t *node;
     int pos;
-    int visit;
 } path_t;
 
 // The matcher maintains a list of positions that are important for backtracking

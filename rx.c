@@ -1216,7 +1216,7 @@ int rx_match (rx_t *rx, matcher_t *m, int str_size, char *str, int start_pos) {
                 m->cap_size[i] = 0;
             }
             for (int i = 0; i < m->path_count; i += 1) {
-                path_t *p = &m->path[i];
+                path_t *p = m->path + i;
                 if (p->node->type == CAPTURE_START) {
                     int j = p->node->value;
                     m->cap_defined[j] = 1;
