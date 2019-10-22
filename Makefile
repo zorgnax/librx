@@ -13,7 +13,7 @@ endif
 
 all: $(LIB) test example1 example2 example3 example4 example5
 
-$(LIB): rx.c rx.h
+$(LIB): rx.c hash.c rx.h
 	$(CC) $(LFLAGS) $(CFLAGS) $(filter %.c, $^) -o $@
 
 test: test.c $(LIB)

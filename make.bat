@@ -16,9 +16,9 @@ IF "%1"=="clean" (SET OK=) ELSE (GOTO :ENDIF)
 CALL :SETUP_VC_ENVIRONMENT
 IF NOT DEFINED RESULT EXIT /B
 
-CALL :NEEDS_UPDATE librx.dll rx.c rx.h
+CALL :NEEDS_UPDATE librx.dll rx.c rx.h hash.c hash.h
 IF NOT DEFINED RESULT GOTO :ENDIF
-	CALL :DO CL %CFLAGS% rx.c /link /DLL /DEF:librx.def /OUT:librx.dll
+	CALL :DO CL %CFLAGS% rx.c hsah.c /link /DLL /DEF:librx.def /OUT:librx.dll
 :ENDIF
 
 CALL :NEEDS_UPDATE test.exe test.c librx.lib

@@ -530,6 +530,11 @@ void process_file (char *file) {
         line += count_lines(data, pos, m->cap_start[0]);
         pos = m->cap_end[2];
 
+        if (strncmp("bailout", test_regexp, test_regexp_size) == 0) {
+            printf("Bailing out.\n");
+            break;
+        }
+
         rx_init(test_rx, test_regexp_size, test_regexp);
         if (test_rx->error) {
             test_count += 1;

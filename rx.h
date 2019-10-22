@@ -7,9 +7,7 @@ enum {
     BRANCH,
     CAPTURE_START,
     CAPTURE_END,
-    SUBGRAPH_END,
     MATCH_END,
-    QUANTIFIER,
     ASSERTION,
     CHAR_CLASS,
     CHAR_SET,
@@ -38,13 +36,26 @@ enum {
     CS_NOTSPACE,
 };
 
+typedef unsigned int (hash_func_t) (void *key);
+typedef int (equal_func_t) (void *key1, void *key2);
+
+typedef struct {
+    int allocated;
+    int count;
+    int *defined;
+    unsigned int *hashes;
+    void **keys;
+    void **values;
+    hash_func_t *hash_func;
+    equal_func_t *equal_func;
+} hash_t;
+
 typedef struct node_t node_t;
 
 typedef struct {
     int min;
     int max;
     int greedy;
-    node_t *next;
 } quantifier_t;
 
 typedef struct {
@@ -65,7 +76,6 @@ struct node_t {
     union {
         unsigned char value;
         node_t *next2;
-        quantifier_t *qval;
         char_class_t *ccval;
     };
 };
@@ -90,6 +100,10 @@ typedef struct {
     int char_classes_count;
     int char_classes_allocated;
     char_class_t **char_classes;
+    int dfs_stack_count;
+    int dfs_stack_allocated;
+    node_t **dfs_stack;
+    hash_t *dfs_map;
 } rx_t;
 
 typedef struct {

@@ -3,6 +3,7 @@
 //
 
 #include "rx.h"
+#include "hash.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -200,33 +201,6 @@ void rx_print (rx_t *rx) {
             char *label = labels[n->value];
             fprintf(fp, "    %d [label=\"%dC\"]\n", i1, i1);
             fprintf(fp, "    %d -> %d [label=\"%s\"]\n", i1, i2, label);
-        } else if (n->type == QUANTIFIER) {
-            quantifier_t *qval = n->qval;
-            if (qval->greedy) {
-                int i3 = rx_node_index(rx, qval->next);
-                fprintf(fp, "    %d [label=\"%dQ\"]\n", i1, i1);
-                fprintf(fp, "    %d -> %d [style=dotted]\n", i1, i2);
-                fprintf(fp, "    %d -> %d [style=solid,label=\"{%d", i1, i3, qval->min);
-                if (qval->min == qval->max) {
-                    fprintf(fp, "}\"]\n");
-                } else if (qval->max == -1) {
-                    fprintf(fp, ",}\"]\n");
-                } else {
-                    fprintf(fp, ",%d}\"]\n", qval->max);
-                }
-            } else {
-                int i3 = rx_node_index(rx, qval->next);
-                fprintf(fp, "    %d [label=\"%dQ\"]\n", i1, i1);
-                fprintf(fp, "    %d -> %d [style=solid]\n", i1, i2);
-                fprintf(fp, "    %d -> %d [style=dotted,label=\"{%d", i1, i3, qval->min);
-                if (qval->min == qval->max) {
-                    fprintf(fp, "}?\"]\n");
-                } else if (qval->max == -1) {
-                    fprintf(fp, ",}?\"]\n");
-                } else {
-                    fprintf(fp, ",%d}?\"]\n", qval->max);
-                }
-            }
         } else if (n->type == MATCH_END) {
             fprintf(fp, "    %d [label=\"%dE\"]\n", i1, i1);
         } else if (n->next) {
@@ -473,25 +447,25 @@ int rx_char_class_init (rx_t *rx, int pos, int *pos2, char_class_t **ccval2) {
     return 1;
 }
 
-int rx_quantifier_init (rx_t *rx, int pos, int *pos2, quantifier_t **qval2) {
+int rx_quantifier_init (rx_t *rx, int pos, int *pos2, quantifier_t *qval) {
     int regexp_size = rx->regexp_size;
     char *regexp = rx->regexp;
     char c;
-    int min = 0, minp = 1, max = 0, maxp = 1, greedy = 1;
+    int min = 0, seen_min = 0, max = 0, seen_max = 0, greedy = 1;
     pos += 1;
     for (; pos < regexp_size; pos += 1) {
         c = regexp[pos];
         if (c >= '0' && c <= '9') {
-            min = minp * min + (c - '0');
-            minp *= 10;
+            min = 10 * min + (c - '0');
+            seen_min = 1;
         } else if (c == ',') {
-            if (minp == 1) {
+            if (!seen_min) {
                 return rx_error(rx, "Expected a number before ,.");
             }
             pos += 1;
             break;
         } else if (c == '}') {
-            if (minp == 1) {
+            if (!seen_min) {
                 return rx_error(rx, "Expected a number before }.");
             }
             max = min;
@@ -503,10 +477,10 @@ int rx_quantifier_init (rx_t *rx, int pos, int *pos2, quantifier_t **qval2) {
     for (; pos < regexp_size; pos += 1) {
         c = regexp[pos];
         if (c >= '0' && c <= '9') {
-            max = maxp * max + (c - '0');
-            maxp *= 10;
+            max = 10 * max + (c - '0');
+            seen_max = 1;
         } else if (c == '}') {
-            if (maxp == 1) {
+            if (!seen_max) {
                 max = -1; // -1 means infinite
             }
             goto check_greedy;
@@ -527,18 +501,10 @@ int rx_quantifier_init (rx_t *rx, int pos, int *pos2, quantifier_t **qval2) {
         // greedy
         greedy = 1;
     }
-    quantifier_t *qval = malloc(sizeof(quantifier_t));
     qval->min = min;
     qval->max = max;
     qval->greedy = greedy;
-    if (rx->quantifiers_count >= rx->quantifiers_allocated) {
-        rx->quantifiers_allocated *= 2;
-        rx->quantifiers = realloc(rx->quantifiers, rx->quantifiers_allocated * sizeof(quantifier_t *));
-    }
-    rx->quantifiers[rx->quantifiers_count] = qval;
-    rx->quantifiers_count += 1;
     *pos2 = pos;
-    *qval2 = qval;
     return 1;
 }
 
@@ -566,11 +532,13 @@ static void rx_partial_free (rx_t *rx) {
 
 void rx_free (rx_t *rx) {
     rx_partial_free(rx);
+    hash_free(rx->dfs_map);
     free(rx->nodes);
     free(rx->cap_start);
     free(rx->or_end);
     free(rx->quantifiers);
     free(rx->char_classes);
+    free(rx->dfs_stack);
     free(rx->errorstr);
     free(rx);
 }
@@ -586,6 +554,9 @@ rx_t *rx_alloc () {
     rx->cap_allocated = 10;
     rx->cap_start = malloc(rx->cap_allocated * sizeof(node_t *));
     rx->or_end = malloc(rx->cap_allocated * sizeof(node_t *));
+    rx->dfs_stack_allocated = 10;
+    rx->dfs_stack = malloc(rx->dfs_stack_allocated * sizeof(node_t *));
+    rx->dfs_map = hash_init(hash_direct_hash, hash_direct_equal);
     return rx;
 }
 
@@ -600,6 +571,75 @@ matcher_t *rx_matcher_alloc () {
     m->cap_str = realloc(m->cap_str, m->cap_allocated * sizeof(char *));
     m->cap_size = realloc(m->cap_size, m->cap_allocated * sizeof(int));
     return m;
+}
+
+// Copies the subgraph starting at sg_start and going no furthur than sg_end into
+// the node starting at new_start. Returns the new_end node. Performs a depth first
+// search iteratively.
+node_t *copy_subgraph (rx_t *rx, node_t *sg_start, node_t *sg_end, node_t *new_start) {
+    rx->dfs_stack_count = 0;
+    hash_clear(rx->dfs_map);
+    node_t *node, *new_node, *new_node2, *new_end;
+    if (rx->dfs_stack_count >= rx->dfs_stack_allocated) {
+        rx->dfs_stack_allocated *= 2;
+        rx->dfs_stack = realloc(rx->dfs_stack, rx->dfs_stack_allocated * sizeof(node_t *));
+    }
+    rx->dfs_stack[rx->dfs_stack_count] = sg_start;
+    rx->dfs_stack_count += 1;
+    hash_insert(rx->dfs_map, sg_start, new_start);
+
+    while (1) {
+        if (rx->dfs_stack_count == 0) {
+            break;
+        }
+        rx->dfs_stack_count -= 1;
+        node = rx->dfs_stack[rx->dfs_stack_count];
+        new_node = hash_lookup(rx->dfs_map, node);
+        if (node == sg_end) {
+            new_end = new_node;
+            node->type |= 0x80; // visited
+            continue;
+        }
+        *new_node = *node;
+        node->type |= 0x80; // visited
+
+        if (rx->dfs_stack_count + 1 >= rx->dfs_stack_allocated) {
+            rx->dfs_stack_allocated *= 2;
+            rx->dfs_stack = realloc(rx->dfs_stack, rx->dfs_stack_allocated * sizeof(node_t *));
+        }
+
+        if (node->next->type & 0x80) {
+            new_node->next = hash_lookup(rx->dfs_map, node->next);
+        } else {
+            new_node2 = rx_node_create(rx);
+            new_node->next = new_node2;
+            hash_insert(rx->dfs_map, node->next, new_node2);
+            rx->dfs_stack[rx->dfs_stack_count] = node->next;
+            rx->dfs_stack_count += 1;
+        }
+
+        if (new_node->type == BRANCH) {
+            if (node->next2->type & 0x80) {
+                new_node->next2 = hash_lookup(rx->dfs_map, node->next2);
+            } else {
+                new_node2 = rx_node_create(rx);
+                new_node->next2 = new_node2;
+                hash_insert(rx->dfs_map, node->next2, new_node2);
+                rx->dfs_stack[rx->dfs_stack_count] = node->next2;
+                rx->dfs_stack_count += 1;
+            }
+        }
+    }
+
+    // Unset all the visited flags.
+    for (int i = 0; i < rx->dfs_map->allocated; i += 1) {
+        if (rx->dfs_map->defined[i]) {
+            node = rx->dfs_map->keys[i];
+            node->type &= ~0x80;
+        }
+    }
+
+    return new_end;
 }
 
 // Returns 1 on success.
@@ -749,22 +789,72 @@ int rx_init (rx_t *rx, int regexp_size, char *regexp) {
             if (!atom_start) {
                 return rx_error(rx, "Expected something to apply the {.");
             }
-            quantifier_t *qval;
+            quantifier_t qval;
             if (!rx_quantifier_init(rx, pos, &pos, &qval)) {
                 return 0;
             }
-            node_t *node2 = rx_node_create(rx);
-            node_t *node3 = rx_node_create(rx);
-            *node2 = *atom_start;
-            atom_start->type = QUANTIFIER;
-            atom_start->qval = qval;
-            // For QUANTIFIER nodes, qval->next points into the subgraph and next
-            // points out of it.
-            atom_start->next = node3;
-            qval->next = node2;
-            node->type = SUBGRAPH_END;
-            node->next2 = atom_start;
-            node = node3;
+            node_t *sg_start = atom_start;
+            node_t *sg_end = node;
+            int i = 0;
+            if (qval.min == 0) {
+                sg_start = rx_node_create(rx);    
+                *sg_start = *atom_start;
+                atom_start->type = EMPTY;
+                atom_start->next = NULL;
+                node = atom_start;
+            }
+            else {
+                for (i = 1; i < qval.min; i += 1) {
+                    node = copy_subgraph(rx, sg_start, sg_end, node);
+                }
+            }
+            
+            node_t *sg_start2, *sg_end2;
+            if (qval.max == -1) {
+                if (i == 0) {
+                    sg_start2 = sg_start;
+                    sg_end2 = sg_end;
+                } else {
+                    sg_start2 = rx_node_create(rx);
+                    sg_end2 = copy_subgraph(rx, sg_start, sg_end, sg_start2);
+                }
+                
+                node_t *node2 = rx_node_create(rx);
+                node->type = BRANCH;
+                sg_end2->type = BRANCH;
+                if (qval.greedy) {
+                    node->next = sg_start2;
+                    node->next2 = node2;
+                    sg_end2->next = sg_start2;
+                    sg_end2->next2 = node2;
+                } else {
+                    node->next = node2;
+                    node->next2 = sg_start2;
+                    sg_end2->next = node2;
+                    sg_end2->next2 = sg_start2;
+                }
+                node = node2;
+                continue;
+            }
+
+            for (; i < qval.max; i += 1) {
+                if (i == 0) {
+                    sg_start2 = sg_start;
+                    sg_end2 = sg_end;
+                } else {
+                    sg_start2 = rx_node_create(rx);
+                    sg_end2 = copy_subgraph(rx, sg_start, sg_end, sg_start2);
+                }
+                node->type = BRANCH;
+                if (qval.greedy) {
+                    node->next = sg_start2;
+                    node->next2 = sg_end2;
+                } else {
+                    node->next = sg_end2;
+                    node->next2 = sg_start2;
+                }
+                node = sg_end2;
+            }
 
         } else if (c == '\\') {
             if (pos + 1 == regexp_size) {
@@ -1113,7 +1203,7 @@ int rx_match (rx_t *rx, matcher_t *m, int str_size, char *str, int start_pos) {
             // Match cap count is one more than rx cap count since it counts the
             // entire match as the 0 capture.
             m->cap_count = rx->cap_count + 1;
-            if (m->cap_allocated < m->cap_count) {
+            if (m->cap_count > m->cap_allocated) {
                 m->cap_allocated = m->cap_count;
                 m->cap_start = realloc(m->cap_start, m->cap_allocated * sizeof(int));
                 m->cap_end = realloc(m->cap_end, m->cap_allocated * sizeof(int));
@@ -1171,91 +1261,6 @@ int rx_match (rx_t *rx, matcher_t *m, int str_size, char *str, int start_pos) {
         case GROUP_END:
             node = node->next;
             continue;
-            break;
-
-        case QUANTIFIER:
-            {
-                if (m->path_count == m->path_allocated) {
-                    m->path_allocated *= 2;
-                    m->path = realloc(m->path, m->path_allocated * sizeof(path_t));
-                }
-                path_t *p = m->path + m->path_count;
-                p->pos = pos;
-                p->node = node;
-                p->visit = 0;
-                m->path_count += 1;
-                quantifier_t *qval = node->qval;
-                if (qval->greedy) {
-                    node = qval->next;
-                    p->visit = 1;
-                } else if (qval->min) {
-                    node = qval->next;
-                    p->visit = 1;
-                }
-                else {
-                    node = node->next;
-                }
-                continue;
-            }
-            break;
-
-        case SUBGRAPH_END:
-            {
-                // End of a quantified branch
-                path_t *p = NULL;
-                for (int i = m->path_count - 1; i >= 0; i--) {
-                    path_t *p2 = &m->path[i];
-                    if (p2->node == node->next2) {
-                        p = p2;
-                        break;
-                    }
-                }
-                if (!p) {
-                    goto try_alternative; // This should never happen
-                }
-
-                // I *think* I got this correct, it's hard to understand the state of
-                // the graph when returning from subgraph under greedy/nongreedy, and to
-                // be sure to save captures, etc.
-                quantifier_t *qval = p->node->qval;
-                if (qval->greedy) {
-                    if (p->visit == qval->max) {
-                        node = p->node->next;
-                    } else if (p->visit < qval->min) {
-                        node = qval->next;
-                        p->visit += 1;
-                    } else {
-                        if (m->path_count == m->path_allocated) {
-                            m->path_allocated *= 2;
-                            m->path = realloc(m->path, m->path_allocated * sizeof(path_t));
-                        }
-                        path_t *p2 = &m->path[m->path_count];
-                        p2->pos = pos;
-                        p2->node = p->node;
-                        p2->visit = p->visit + 1;
-                        m->path_count += 1;
-                        node = qval->next;
-                    }
-                }
-                else {
-                    if (p->visit < qval->min) {
-                        node = qval->next;
-                        p->visit += 1;
-                    } else {
-                        if (m->path_count == m->path_allocated) {
-                            m->path_allocated *= 2;
-                            m->path = realloc(m->path, m->path_allocated * sizeof(path_t));
-                        }
-                        path_t *p2 = &m->path[m->path_count];
-                        p2->pos = pos;
-                        p2->node = p->node;
-                        p2->visit = p->visit;
-                        m->path_count += 1;
-                        node = p->node->next;
-                    }
-                }
-                continue;
-            }
             break;
 
         case ASSERTION:
@@ -1359,29 +1364,12 @@ int rx_match (rx_t *rx, matcher_t *m, int str_size, char *str, int start_pos) {
         try_alternative:
 
         for (int i = m->path_count - 1; i >= 0; i--) {
-            path_t *p = &m->path[i];
+            path_t *p = m->path + i;
             if (p->node->type == BRANCH) {
                 node = p->node->next2;
                 pos = p->pos;
                 m->path_count = i;
                 goto retry;
-            } else if (p->node->type == QUANTIFIER) {
-                quantifier_t *qval = p->node->qval;
-                if (qval->greedy) {
-                    if (p->visit > qval->min) {
-                        node = p->node->next;
-                        pos = p->pos;
-                        m->path_count = i;
-                        goto retry;
-                    }
-                } else {
-                    if (p->visit != qval->max) {
-                        p->visit += 1;
-                        node = qval->next;
-                        pos = p->pos;
-                        goto retry;
-                    }
-                }
             }
         }
 

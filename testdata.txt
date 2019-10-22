@@ -1,5 +1,33 @@
 # Run ./test to run these tests. See test.c for a description of this file format.
 
+(ra){2,4}
+    jtraraaabke
+    0: rara
+
+ra{2,4}
+    jtraaabke
+    0: raaa
+
+ra{2,4}?
+    jtraaabke
+    0: raa
+
+a{2,4}?b
+    jtraaabke
+    0: aaab
+
+a{2,4}b
+    jtraaabke
+    0: aaab
+
+a(a|b){0,}a
+    abababababa
+    0: abababababa
+
+a(a|b){0,}?a
+    abababababa
+    0: aba
+
 (a|bcdef|g|ab|c|d|e|efg|fg)*
     abcdefg
     1: g
@@ -212,30 +240,6 @@ a(a|b)*a
     abababababa
     0: abababababa
 
-a(a|b){0,}a
-    abababababa
-    0: abababababa
-
-a(a|b){0,}?a
-    abababababa
-    0: aba
-
-ra{2,4}
-    jtraaabke
-    0: raaa
-
-ra{2,4}?
-    jtraaabke
-    0: raa
-
-a{2,4}?b
-    jtraaabke
-    0: aaab
-
-a{2,4}b
-    jtraaabke
-    0: aaab
-
 (0|1|2|3|4|5|6|7|8|9){4}-(0|1|2|3|4|5|6|7|8|9){1,2}-(0|1|2|3|4|5|6|7|8|9){1,2}
     The date is 2019-10-01
     0: 2019-10-01
@@ -268,9 +272,10 @@ b((an){2}){1,3}
     bananananana
     0: banananan
 
+# This one could be an error, but I just treat it as if {2} was specified
 a{2,1}b
     jtraaabke
-    0: ab
+    0: aab
 
 a{2,}b
     jtraaabke
