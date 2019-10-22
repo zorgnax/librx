@@ -1,6 +1,6 @@
 @ECHO OFF
-REM Build the librx library and all supporting programs.
-REM make clean will cleanup a previous build
+REM Build the librx library and all supporting programs on Windows.
+REM make clean will cleanup a previous build.
 
 SET CFLAGS=
 SET /A COUNT=0
@@ -18,37 +18,37 @@ IF NOT DEFINED RESULT EXIT /B
 
 CALL :NEEDS_UPDATE librx.dll rx.c rx.h hash.c hash.h
 IF NOT DEFINED RESULT GOTO :ENDIF
-	CALL :DO CL %CFLAGS% rx.c hsah.c /link /DLL /DEF:librx.def /OUT:librx.dll
+    CALL :DO CL %CFLAGS% rx.c hsah.c /link /DLL /DEF:librx.def /OUT:librx.dll
 :ENDIF
 
 CALL :NEEDS_UPDATE test.exe test.c librx.lib
 IF NOT DEFINED RESULT GOTO :ENDIF
-	CALL :DO CL %CFLAGS% test.c librx.lib
+    CALL :DO CL %CFLAGS% test.c librx.lib
 :ENDIF
 
 CALL :NEEDS_UPDATE example1.exe example1.c librx.lib
 IF NOT DEFINED RESULT GOTO :ENDIF
-	CALL :DO CL %CFLAGS% example1.c librx.lib
+    CALL :DO CL %CFLAGS% example1.c librx.lib
 :ENDIF
 
 CALL :NEEDS_UPDATE example2.exe example2.c librx.lib
 IF NOT DEFINED RESULT GOTO :ENDIF
-	CALL :DO CL %CFLAGS% example2.c librx.lib
+    CALL :DO CL %CFLAGS% example2.c librx.lib
 :ENDIF
 
 CALL :NEEDS_UPDATE example3.exe example3.c librx.lib
 IF NOT DEFINED RESULT GOTO :ENDIF
-	CALL :DO CL %CFLAGS% example3.c librx.lib
+    CALL :DO CL %CFLAGS% example3.c librx.lib
 :ENDIF
 
 CALL :NEEDS_UPDATE example4.exe example4.c librx.lib
 IF NOT DEFINED RESULT GOTO :ENDIF
-	CALL :DO CL %CFLAGS% example4.c librx.lib setargv.obj
+    CALL :DO CL %CFLAGS% example4.c librx.lib setargv.obj
 :ENDIF
 
 CALL :NEEDS_UPDATE example5.exe example5.c librx.lib
 IF NOT DEFINED RESULT GOTO :ENDIF
-	CALL :DO CL %CFLAGS% example5.c librx.lib setargv.obj
+    CALL :DO CL %CFLAGS% example5.c librx.lib setargv.obj
 :ENDIF
 
 SET TIME2=%TIME%
