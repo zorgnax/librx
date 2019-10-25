@@ -78,7 +78,10 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <errno.h>
-#include <unistd.h>
+
+#ifndef _WIN32
+    #include <unistd.h>
+#endif
 
 int pre_code_size;
 char *pre_code;
@@ -144,6 +147,15 @@ char *assert_types[] = {
     "ASSERT_SOW",
     "ASSERT_EOW",
 };
+
+#ifdef _WIN32
+char *strndup (char *str, int size) {
+    char *dup = malloc(size + 1);
+    memcpy(dup, str, size);
+    dup[size] = 0;
+    return dup;
+}
+#endif
 
 void usage () {
     char str[] =
@@ -267,7 +279,9 @@ void output_file (char *file, char *file2) {
     fprintf(fp, "#include <string.h>\n");
     fprintf(fp, "#include <errno.h>\n");
     fprintf(fp, "#include <fcntl.h>\n");
-    fprintf(fp, "#include <unistd.h>\n\n");
+    fprintf(fp, "#ifndef _WIN32\n");
+    fprintf(fp, "    #include <unistd.h>\n");
+    fprintf(fp, "#endif\n\n");
 
     fprintf(fp, "%.*s\n", pre_code_size, pre_code);
 
@@ -483,7 +497,7 @@ void output_file (char *file, char *file2) {
 void process_file (char *file) {
     char *data;
     int data_size = read_file(file, &data);
-   
+
     // Regexp for the main sections of the .lx file
     char regexp1[] =
         "^(.*?)"
@@ -602,7 +616,7 @@ void process_file (char *file) {
     char *file2;
     int file_size = strlen(file);
     if (file_size > 3 && strcmp(file + file_size - 3, ".lx") == 0) {
-        file2 = malloc(file_size);    
+        file2 = malloc(file_size);
         sprintf(file2, "%.*s.c", file_size - 3, file);
     } else {
         file2 = strdup("scanner.c");

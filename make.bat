@@ -7,7 +7,7 @@ SET /A COUNT=0
 SET TIME1=%TIME%
 
 IF "%1"=="clean" (SET OK=) ELSE (GOTO :ENDIF)
-    DIR /B /OD *.obj *.dll *.exe *.exp *.lib > C:\temp\makeclean.txt 2>NUL
+    DIR /B /OD *.obj *.dll *.exe *.exp *.lib example6b.c > C:\temp\makeclean.txt 2>NUL
     FOR /F %%F IN (C:\temp\makeclean.txt) DO CALL :PRINT_DEL_FILE %%F
     IF %COUNT%==0 ECHO Nothing to clean.
     EXIT /B
@@ -49,6 +49,13 @@ IF NOT DEFINED RESULT GOTO :ENDIF
 CALL :NEEDS_UPDATE example5.exe example5.c librx.lib
 IF NOT DEFINED RESULT GOTO :ENDIF
     CALL :DO CL %CFLAGS% example5.c librx.lib setargv.obj
+:ENDIF
+
+CALL :NEEDS_UPDATE example6.exe example6.c hash.c librx.lib
+IF NOT DEFINED RESULT GOTO :ENDIF
+    CALL :DO CL %CFLAGS% example6.c hash.c librx.lib setargv.obj
+	CALL :DO .\example6 example6b.lx
+    CALL :DO CL %CFLAGS% example6b.c librx.lib setargv.obj
 :ENDIF
 
 SET TIME2=%TIME%

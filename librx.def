@@ -11,4 +11,6 @@ EXPORTS
     rx_hex_to_int @9
     rx_int_to_utf8 @10
     rx_utf8_char_size @11
+    rx_init_start @12
+    rx_node_create @13
 
