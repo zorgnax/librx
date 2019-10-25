@@ -637,14 +637,19 @@ node_t *copy_subgraph (rx_t *rx, node_t *sg_start, node_t *sg_end, node_t *new_s
 // Returns 1 on success.
 int rx_init (rx_t *rx, int regexp_size, char *regexp) {
     rx_partial_free(rx);
+    rx->start = rx_node_create(rx);
+    return rx_init_start(rx, regexp_size, regexp, rx->start, 0);
+}
+
+int rx_init_start (rx_t *rx, int regexp_size, char *regexp, node_t *start, int value) {
     rx->regexp_size = regexp_size;
     rx->regexp = regexp;
-    rx->start = rx_node_create(rx);
     
-    node_t *node = rx->start;
+    node_t *node = start;
     node_t *atom_start = NULL;
     node_t *or_end = NULL;
     int cap_depth = 0;
+    int cap_count = 0;
 
     for (int pos = 0; pos < regexp_size; pos += 1) {
         unsigned char c = regexp[pos];
@@ -654,8 +659,8 @@ int rx_init (rx_t *rx, int regexp_size, char *regexp) {
                 node->type = GROUP_START;
             }
             else {
-                rx->cap_count += 1;
-                node->value = rx->cap_count;
+                cap_count += 1;
+                node->value = cap_count;
                 node->type = CAPTURE_START;
             }
             node_t *node2 = rx_node_create(rx);
@@ -700,7 +705,7 @@ int rx_init (rx_t *rx, int regexp_size, char *regexp) {
             if (cap_depth) {
                 or_start = rx->cap_start[cap_depth - 1]->next;
             } else {
-                or_start = rx->start;
+                or_start = start;
             }
             *node2 = *or_start;
             or_start->type = BRANCH;
@@ -931,7 +936,7 @@ int rx_init (rx_t *rx, int regexp_size, char *regexp) {
                 for (i = 0; i < str_size; i += 1) {
                     node_t *node2 = rx_node_create(rx);
                     node->type = TAKE;
-                    node->value = str[i];
+                    node->value = (unsigned char) str[i];
                     node->next = node2;
                     node = node2;
                 }
@@ -1009,6 +1014,10 @@ int rx_init (rx_t *rx, int regexp_size, char *regexp) {
         node = or_end;
     }
     node->type = MATCH_END;
+    node->value = value;
+    if (cap_count > rx->cap_count) {
+        rx->cap_count = cap_count;
+    }
     return 1;
 }
 
@@ -1229,6 +1238,7 @@ int rx_match (rx_t *rx, matcher_t *m, int str_size, char *str, int start_pos) {
                 }
             }
             m->success = 1;
+            m->value = node->value;
             return 1;
             break;
 
@@ -1261,7 +1271,7 @@ int rx_match (rx_t *rx, matcher_t *m, int str_size, char *str, int start_pos) {
                 continue;
             }
             // Do not try an alternative if it was a SOS or SOP assertion that failed
-            if (rx->start->value == ASSERT_SOS || rx->start->value == ASSERT_SOP) {
+            if (node->value == ASSERT_SOS || node->value == ASSERT_SOP) {
                 goto out;
             }
             break;

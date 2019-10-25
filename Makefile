@@ -11,7 +11,7 @@ else
     LIB = librx.so
 endif
 
-all: $(LIB) test example1 example2 example3 example4 example5
+all: $(LIB) test example1 example2 example3 example4 example5 example6
 
 $(LIB): rx.c hash.c rx.h
 	$(CC) $(LFLAGS) $(CFLAGS) $(filter %.c, $^) -o $@
@@ -34,6 +34,11 @@ example4: example4.c $(LIB)
 example5: example5.c $(LIB)
 	$(CC) $(CFLAGS) $^ -o $@
 
+example6: example6.c hash.c $(LIB)
+	$(CC) $(CFLAGS) $^ -o $@
+	./example6 example6b.lx
+	$(CC) $(CFLAGS) example6b.c $(LIB) -o example6b
+
 check: test
 	./test
 
@@ -46,5 +51,5 @@ uninstall:
 	rm $(PREFIX)/lib/$(LIB) $(PREFIX)/lib/rx.h
 
 clean:
-	rm -rf a.out *.dSYM $(LIB) test example[0-9]
+	rm -rf a.out *.dSYM $(LIB) test example[0-9] example6b.c example6b
 

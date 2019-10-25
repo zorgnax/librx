@@ -1,0 +1,40 @@
+// This program is an example of a lexical scanner for a calculator. It detects
+// numbers and operators and ignores comments and whitespace.
+
+int value;
+
+%%
+\#\N*\n
+    // comment
+\d+
+    value = atoi(text);
+    printf("found a number %d\n", value);
+\*
+    printf("found * operator\n");
+/
+    printf("found / operator\n");
+\+
+    printf("found + operator\n");
+-
+    printf("found - operator\n");
+[ \t\n]+
+    // whitespace
+.
+    printf("Unexpected character \"%c\" at line %d column %d\n", *text, line, column);
+    exit(1);
+
+%%
+
+int main (int argc, char **argv) {
+    if (argc < 2) {
+        read_file(-1, "example6b.txt");
+    } else {
+        read_file(-1, argv[1]);
+    }
+
+    lex_init();
+    while (lex()) {
+        // ok
+    }
+}
+

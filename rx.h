@@ -74,7 +74,7 @@ struct node_t {
     char type;
     node_t *next;
     union {
-        unsigned char value;
+        int value;
         node_t *next2;
         char_class_t *ccval;
     };
@@ -122,11 +122,14 @@ typedef struct {
     char **cap_str;
     int *cap_size;
     int success;
+    int value;
 } matcher_t;
 
 rx_t *rx_alloc ();
 matcher_t *rx_matcher_alloc ();
 int rx_init (rx_t *rx, int regexp_size, char *regexp);
+int rx_init_start (rx_t *rx, int regexp_size, char *regexp, node_t *start, int value);
+node_t *rx_node_create (rx_t *rx);
 void rx_print (rx_t *rx);
 void rx_match_print (matcher_t *m);
 int rx_match (rx_t *rx, matcher_t *m, int str_size, char *str, int start_pos);
